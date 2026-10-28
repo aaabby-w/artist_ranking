@@ -1,1 +1,159 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#304b41"><title>众生绘卷 · 美术协作会馆</title><link rel="stylesheet" href="style.css"></head><body><aside class="sidebar"><a class="brand" href="#board"><span class="seal">绘</span><span>众生绘卷<small>众生之门 · 美术协作会馆</small></span></a><div class="nav-label">会馆手记 / WORKSPACE</div><nav><button data-view="board" class="active">◈　委托公告栏 <span>01</span></button><button data-view="mine">✎　我的画桌 <span>02</span></button><button data-view="rank">✧　贡献芳名录 <span>03</span></button></nav><div class="sidebar-note"><span>一笔一画，皆有回响。</span><p>谢谢你，让这个世界<br>多了一点色彩。</p><svg viewBox="0 0 180 130" aria-hidden="true"><path d="M25 120Q40 30 140 15M45 86Q5 60 30 45Q70 46 45 86M77 49Q70 4 98 5Q111 25 77 49M56 71Q110 42 125 68Q90 91 56 71M103 30Q144 13 160 32Q141 52 103 30" fill="none" stroke="currentColor" stroke-width="2"/></svg></div><button id="account" class="account">○　登录会馆</button></aside><main><header><span>美术组 <i>/</i> <b id="crumb">委托公告栏</b></span><div><span id="connection" role="status">本地演示</span><button id="refresh" title="刷新数据" aria-label="刷新数据">↻</button><button id="settings" aria-label="连接设置">⚙</button></div></header><div id="notice" class="notice"></div><section class="hero"><div><p class="eyebrow">THE GATE OF ALL BEINGS · ART GUILD</p><h1>把灵感，画进众生。</h1><p class="intro">领一份喜欢的委托，让每一份用心都被看见。</p><div class="hero-actions"><button class="primary" id="browse">寻找我的下一份委托 ↗</button><button id="new-task" class="outline">＋ 发布委托</button></div></div><svg class="hero-art" viewBox="0 0 420 240" aria-hidden="true"><circle cx="254" cy="113" r="91" fill="#d8dec0"/><circle cx="254" cy="113" r="104" fill="none" stroke="#9eae87" stroke-dasharray="3 9"/><path d="M125 202l43-148 155 16-28 148Z" fill="#f9f4df" stroke="#657854" stroke-width="2"/><path d="M160 174l36-65 34 42 32-51 33 87Z" fill="#b3c099"/><path d="M171 177l45-39 30 38 24-26 24 37" fill="#738c70"/><circle cx="264" cy="101" r="12" fill="#d1ae68"/><path d="M304 206l46-173 11 2-43 176Z" fill="#9b7355"/><path d="M350 33l12-22 0 24Z" fill="#304b41"/><path d="M62 208V157l20 14q19-8 34 0l23-16-3 52q-35 22-74 1Z" fill="#304b41"/><ellipse cx="85" cy="190" rx="7" ry="10" fill="#e8e6bd"/><ellipse cx="116" cy="190" rx="7" ry="10" fill="#e8e6bd"/><path d="M74 210q-35-5-37-23" fill="none" stroke="#304b41" stroke-width="10" stroke-linecap="round"/><g fill="#b79555"><path d="m348 132 5 11 11 5-11 5-5 11-5-11-11-5 11-5Z"/><path d="m102 73 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"/></g></svg></section><section class="stats" id="stats"></section><section class="content"><div class="section-head"><div><p class="eyebrow" id="section-label">TAKE A LITTLE QUEST</p><h2 id="section-title">今天，想画点什么？</h2></div><span id="count"></span></div><div class="toolbar" id="toolbar"><div class="filters"><button data-filter="all" class="selected">全部委托</button><button data-filter="open">待认领</button><button data-filter="active">创作中</button><button data-filter="submitted">待验收</button><button data-filter="done">已完成</button></div><label class="search">⌕ <input id="search" placeholder="找一找角色、场景、图标…" aria-label="搜索委托"></label></div><div class="workspace"><div id="list" aria-live="polite"></div><aside class="right-rail"><section class="panel"><p class="eyebrow">EVERY STROKE COUNTS</p><h3>本月贡献 <span>✧</span></h3><div id="top"></div><button class="text-link" data-view="rank">看看完整芳名录 →</button></section><section class="panel guide"><span class="tag">会馆约定</span><h3>慢慢画，也没关系。</h3><p>按自己的时间认领。遇到困难可以留言，暂时忙不过来，也可以归还未交稿的委托。</p><p>贡献分在验收通过后记入。它记录参与，不给画技打分。</p></section></aside></div></section><footer>众生之门 · 非商业同人协作 <span>每一份贡献，都值得被记住。</span></footer></main><dialog id="dialog"><div class="dialog-head"><h2 id="dialog-title"></h2><button id="close" aria-label="关闭弹窗">×</button></div><div id="dialog-body"></div></dialog><div id="toast" role="status" hidden></div><script src="config.js"></script><script type="module" src="app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#304b41" />
+    <title>众生绘卷 · 美术协作会馆</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#board"
+        ><span class="seal">绘</span
+        ><span>众生绘卷<small>众生之门 · 美术协作会馆</small></span></a
+      >
+      <div class="nav-label">会馆手记 / WORKSPACE</div>
+      <nav>
+        <button data-view="board" class="active">
+          ◈　委托公告栏 <span>01</span></button
+        ><button data-view="mine">✎　我的画桌 <span>02</span></button
+        ><button data-view="rank">✧　贡献芳名录 <span>03</span></button>
+      </nav>
+      <div class="sidebar-note">
+        <span>一笔一画，皆有回响。</span>
+        <p>谢谢你，让这个世界<br />多了一点色彩。</p>
+        <svg viewBox="0 0 180 130" aria-hidden="true">
+          <path
+            d="M25 120Q40 30 140 15M45 86Q5 60 30 45Q70 46 45 86M77 49Q70 4 98 5Q111 25 77 49M56 71Q110 42 125 68Q90 91 56 71M103 30Q144 13 160 32Q141 52 103 30"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          />
+        </svg>
+      </div>
+      <button id="account" class="account">○　登录会馆</button>
+    </aside>
+    <main>
+      <header>
+        <span>美术组 <i>/</i> <b id="crumb">委托公告栏</b></span>
+        <div>
+          <span id="connection" role="status">本地演示</span
+          ><button id="refresh" title="刷新数据" aria-label="刷新数据">↻</button
+          ><button id="settings" aria-label="连接设置">⚙</button>
+        </div>
+      </header>
+      <div id="notice" class="notice"></div>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">THE GATE OF ALL BEINGS · ART GUILD</p>
+          <h1>把灵感，画进众生。</h1>
+          <p class="intro">领一份喜欢的委托，让每一份用心都被看见。</p>
+          <div class="hero-actions">
+            <button class="primary" id="browse">寻找我的下一份委托 ↗</button
+            ><button id="new-task" class="outline">＋ 发布委托</button>
+          </div>
+        </div>
+        <svg class="hero-art" viewBox="0 0 420 240" aria-hidden="true">
+          <circle cx="254" cy="113" r="91" fill="#d8dec0" />
+          <circle
+            cx="254"
+            cy="113"
+            r="104"
+            fill="none"
+            stroke="#9eae87"
+            stroke-dasharray="3 9"
+          />
+          <path
+            d="M125 202l43-148 155 16-28 148Z"
+            fill="#f9f4df"
+            stroke="#657854"
+            stroke-width="2"
+          />
+          <path d="M160 174l36-65 34 42 32-51 33 87Z" fill="#b3c099" />
+          <path d="M171 177l45-39 30 38 24-26 24 37" fill="#738c70" />
+          <circle cx="264" cy="101" r="12" fill="#d1ae68" />
+          <path d="M304 206l46-173 11 2-43 176Z" fill="#9b7355" />
+          <path d="M350 33l12-22 0 24Z" fill="#304b41" />
+          <path
+            d="M62 208V157l20 14q19-8 34 0l23-16-3 52q-35 22-74 1Z"
+            fill="#304b41"
+          />
+          <ellipse cx="85" cy="190" rx="7" ry="10" fill="#e8e6bd" />
+          <ellipse cx="116" cy="190" rx="7" ry="10" fill="#e8e6bd" />
+          <path
+            d="M74 210q-35-5-37-23"
+            fill="none"
+            stroke="#304b41"
+            stroke-width="10"
+            stroke-linecap="round"
+          />
+          <g fill="#b79555">
+            <path d="m348 132 5 11 11 5-11 5-5 11-5-11-11-5 11-5Z" />
+            <path d="m102 73 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z" />
+          </g>
+        </svg>
+      </section>
+      <section class="stats" id="stats"></section>
+      <section class="content">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow" id="section-label">TAKE A LITTLE QUEST</p>
+            <h2 id="section-title">今天，想画点什么？</h2>
+          </div>
+          <span id="count"></span>
+        </div>
+        <div class="toolbar" id="toolbar">
+          <div class="filters">
+            <button data-filter="all" class="selected">全部委托</button
+            ><button data-filter="open">待认领</button
+            ><button data-filter="active">创作中</button
+            ><button data-filter="submitted">待验收</button
+            ><button data-filter="done">已完成</button>
+          </div>
+          <label class="search"
+            >⌕
+            <input
+              id="search"
+              placeholder="找一找角色、场景、图标…"
+              aria-label="搜索委托"
+          /></label>
+        </div>
+        <div class="workspace">
+          <div id="list" aria-live="polite"></div>
+          <aside class="right-rail">
+            <section class="panel">
+              <p class="eyebrow">EVERY STROKE COUNTS</p>
+              <h3>本月贡献 <span>✧</span></h3>
+              <div id="top"></div>
+              <button class="text-link" data-view="rank">
+                看看完整芳名录 →
+              </button>
+            </section>
+            <section class="panel guide">
+              <span class="tag">会馆约定</span>
+              <h3>慢慢画，也没关系。</h3>
+              <p>
+                按自己的时间认领。遇到困难可以留言，暂时忙不过来，也可以归还未交稿的委托。
+              </p>
+              <p>贡献分在验收通过后记入。它记录参与，不给画技打分。</p>
+            </section>
+          </aside>
+        </div>
+      </section>
+      <footer>
+        众生之门 · 非商业同人协作 <span>每一份贡献，都值得被记住。</span>
+      </footer>
+    </main>
+    <dialog id="dialog">
+      <div class="dialog-head">
+        <h2 id="dialog-title"></h2>
+        <button id="close" aria-label="关闭弹窗">×</button>
+      </div>
+      <div id="dialog-body"></div>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+    <script src="config.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
