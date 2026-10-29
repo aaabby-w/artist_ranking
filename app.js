@@ -1122,7 +1122,7 @@ function phaseRanking() {
 }
 function rewardHTML() {
   const c = campaign();
-  return `<p class="eyebrow">一份小小的感谢 ( •̀ ω •́ )✧</p><h3>本期最高贡献奖励 ¥100</h3><p>${c.starts_at && c.ends_at ? `${esc(c.name)}<br>${esc(beijing(c.starts_at))} 至<br>${esc(beijing(c.ends_at))}（北京时间）` : "预计 11 月中下旬截止<br>具体起止时间待公布"}</p><p>本期最高贡献的小画师获得 100 元；并列第一均分这 100 元。额外感谢，不是稿酬或计件单价。</p><p>以统计期内提交、最终验收通过的版本计分。晚验收可补记；修改后按最终通过版本的提交时间判断。名单由负责人核对后公布。</p>`;
+  return `<p class="eyebrow">一份小小的感谢 ( •̀ ω •́ )✧</p><h3>本期最高贡献奖励 ¥100</h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "预计 11 月中下旬截止<br>具体起止时间待公布"}</p><p>本期最高贡献的小画师获得 100 元；并列第一均分这 100 元。额外感谢，不是稿酬或计件单价。</p><p>以统计期内提交、最终验收通过的版本计分。晚验收可补记；修改后按最终通过版本的提交时间判断。名单由负责人核对后公布。</p>`;
 }
 function phaseHTML() {
   const c = campaign(),
