@@ -5,7 +5,7 @@
   --green: #45664f;
   --line: #dce0cf;
   --gold: #b29154;
-  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Noto Sans SC", sans-serif;
   color: var(--ink);
   background: #f4f5eb;
 }
@@ -92,7 +92,7 @@ p {
 .seal {
   border: 1px solid #b5c29e;
   padding: 6px;
-  font-family: serif;
+  font-family: "Noto Sans SC", sans-serif;
   border-radius: 12px 3px;
   font-size: 28px;
 }
@@ -205,7 +205,7 @@ header button {
   color: var(--muted);
 }
 h1 {
-  font-family: "Songti SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-weight: 500;
   font-size: 36px;
   letter-spacing: 3px;
@@ -267,7 +267,7 @@ h1 {
   color: var(--muted);
 }
 .stat strong {
-  font-family: Georgia, serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 29px;
   font-weight: 400;
   display: block;
@@ -288,7 +288,7 @@ h1 {
   margin-bottom: 22px;
 }
 h2 {
-  font-family: "Songti SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 23px;
   font-weight: 500;
   margin-top: 7px;
@@ -468,7 +468,7 @@ h2 {
   margin-top: 5px;
 }
 .person strong {
-  font-family: Georgia;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 17px;
   font-weight: 400;
 }
@@ -1002,7 +1002,7 @@ textarea {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-family: "Songti SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 30px;
   color: #f6f1dd;
   background: var(--ink);
@@ -1015,7 +1015,7 @@ textarea {
 }
 .work-scene {
   margin: 0;
-  font-family: "Songti SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 15px;
   line-height: 1.7;
   color: #4d5c46;
@@ -1031,7 +1031,7 @@ textarea {
   color: var(--muted);
 }
 .work-ph-mark {
-  font-family: Georgia, serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 46px;
   color: var(--gold);
 }
@@ -1059,7 +1059,7 @@ textarea {
   padding: 14px 16px 16px;
 }
 .work-info h3 {
-  font-family: "Songti SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 16px;
   margin: 0 0 4px;
 }
@@ -1131,7 +1131,7 @@ textarea {
   border: 1px solid #d3dbc0;
 }
 .publish-note b {
-  font-family: "Songti SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 16px;
 }
 .publish-note p {
@@ -1187,3 +1187,14 @@ textarea {
   .campaign-announcement p { font-size: 15px; }
   .campaign-announcement .outline { width: 100%; font-size: 13px; padding: 12px 8px; }
 }
+
+/* Same self-hosted fonts across platforms; playful display, legible task text. */
+h1, .section-head h2, .campaign-announcement h2, .brand b, .seal, .work-seal, .tour-tip h3 {
+  font-family: "ZCOOL KuaiLe", "Noto Sans SC", sans-serif;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: .035em;
+}
+body { font-weight: 400; }
+input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
+.detail-copy, .submission p { line-height: 1.85; }
