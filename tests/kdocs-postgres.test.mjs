@@ -315,6 +315,30 @@ psql(`select guild_delete_task('${claimed}');`, { ...asA, expectError: "已有�
 assert.equal(one(`select count(*) from guild_submissions where task_id='${claimed}';`), "1");
 ok("已被认领、或曾经交过稿（即使已归还为待认领）的任务不能删除，作品记录保留");
 
+console.log("场景：009 删除可连同测试交稿");
+psql(file("supabase/009_admin_delete_with_submissions.sql"));
+psql(`insert into storage.objects(bucket_id,name) values('guild-submissions','${ARTIST}/${claimed}/test.png'),('guild-submissions','${ARTIST}/${T.legacy03}/keep.png');`);
+psql(`delete from storage.objects where bucket_id='guild-submissions';`, asA);
+assert.equal(one(`select count(*) from storage.objects;`), "2"); ok("任务还在时，负责人删不掉它的作品图片");
+assert.equal(one(`select guild_delete_task('${claimed}');`, asA), "1");
+assert.equal(one(`select count(*) from guild_tasks where id='${claimed}';`), "0");
+assert.equal(one(`select count(*) from guild_submissions where task_id='${claimed}';`), "0");
+ok("待认领、无贡献分的手动任务：连同 1 条测试交稿一起删除");
+psql(`delete from storage.objects where bucket_id='guild-submissions';`, asArtist);
+assert.equal(one(`select count(*) from storage.objects;`), "2"); ok("画师不能删除任何图片");
+psql(`delete from storage.objects where bucket_id='guild-submissions';`, asA);
+assert.equal(one(`select string_agg(name, ',') from storage.objects;`), `${ARTIST}/${T.legacy03}/keep.png`);
+ok("负责人只能清理已删除任务留下的图片；其它任务的作品原样保留");
+const doneTask = one(`select guild_save_task(null,'已完成任务','角色立绘','要求',20);`, asA);
+psql(`select guild_action('${doneTask}','claim');`, asArtist);
+psql(`select guild_action('${doneTask}','submit','https://example.com/d.png','终稿');`, asArtist);
+psql(`select guild_action('${doneTask}','approve',null,null,'好');`, asB);
+psql(`select guild_delete_task('${doneTask}');`, { ...asA, expectError: "还没人认领" });
+psql(`select guild_delete_task('${T.claw}');`, { ...asA, expectError: "来自金山表" });
+psql(`select guild_delete_task('${T.claw}');`, { ...asArtist, expectError: "只有负责人" });
+assert.equal(one(`select count(*) from guild_awards where task_id='${doneTask}';`), "1");
+ok("已完成并记分的任务、金山表的卡依旧不能删；画师不能删；贡献分记录保留");
+
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
 psql(`insert into vault.secrets(name, secret) values('kdocs_sync_trigger', repeat('x',40));`);

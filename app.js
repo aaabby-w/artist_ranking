@@ -1269,21 +1269,30 @@ function renderAdmin() {
     $("#admin-search").setSelectionRange(pos, pos);
   };
 }
-// 负责人可删除自己发布、还没人认领的任务；金山表里的卡请在金山表里删。
+// 负责人可删除自己发布、还没人认领、没有贡献分记录的任务（连同其交稿，例如测试稿）。
+// 金山表里的卡请在金山表里删。
 function canDeleteTask(t) {
-  return profile?.role === "admin" && t.status === "open" && !t.import_key && !t.kdocs_card_id &&
-    !data.submissions.some((s) => s.task_id === t.id);
+  return profile?.role === "admin" && t.status === "open" && !t.assignee && !t.import_key && !t.kdocs_card_id &&
+    !data.awards.some((a) => a.task_id === t.id);
 }
 async function deleteTask(id) {
   const t = data.tasks.find((x) => x.id === id);
   if (!t || !canDeleteTask(t)) return toast("这份任务不能删除，请刷新后再试");
-  if (!confirm(`确定删除「${t.title}」吗？删除后无法恢复。`)) return;
+  const subs = data.submissions.filter((s) => s.task_id === id);
+  const images = subs.map((s) => uploadedImagePath(s.url)).filter(Boolean);
+  if (!confirm(`确定删除「${t.title}」吗？${subs.length ? `\n它的 ${subs.length} 条交稿记录${images.length ? `和 ${images.length} 张上传图片` : ""}也会一起删除。` : ""}\n删除后无法恢复。`)) return;
   try {
     await adminRPC("guild_delete_task", { p_task: id }, () => {
       data.tasks = data.tasks.filter((x) => x.id !== id);
+      data.submissions = data.submissions.filter((s) => s.task_id !== id);
     });
     if ($("#dialog").open) $("#dialog").close();
-    toast("已删除任务。");
+    let note = "";
+    if (!demo && images.length) {
+      const { error: removeError } = await client.storage.from(UPLOAD_BUCKET).remove(images);
+      if (removeError) note = "（上传的图片未能删除，请联系维护者清理）";
+    }
+    toast("已删除任务。" + note);
   } catch (e) {
     error(e);
   }

@@ -85,8 +85,13 @@ console.log("  ✓ 没有需要核实的正式任务时，“待核实”不显�
 T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", adminFilter: "open",
   data: { ...base, tasks, submissions: [{ id: "s1", task_id: "10", author_id: "u1", url: "https://x", note: "", feedback: "", created_at: "2026-10-29T00:00:00Z" }] } });
 T.render();
+assert.match(el("#list").innerHTML, /data-delete-task="10"/);
+console.log("  ✓ 带测试交稿、没有贡献分的待认领任务也显示删除按钮");
+T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", adminFilter: "open",
+  data: { ...base, tasks, awards: [{ id: "w1", task_id: "10", artist_id: "u1", points: 40, created_at: "2026-10-29T00:00:00Z" }] } });
+T.render();
 assert.doesNotMatch(el("#list").innerHTML, /data-delete-task/);
-console.log("  ✓ 有过交稿记录的任务不显示删除按钮");
+console.log("  ✓ 有贡献分记录的任务不显示删除按钮");
 T.set({ user: { id: "u1" }, profile: null, view: "admin", filter: "all", adminFilter: "open", data: { ...base, tasks } });
 assert.equal(T.canDeleteTask(tasks[9]), false); console.log("  ✓ 画师账号不能删除");
 
