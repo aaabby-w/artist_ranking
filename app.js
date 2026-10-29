@@ -822,7 +822,7 @@ function account() {
   if (user) {
     modal(
       "我的账号",
-      `<p class="detail-copy">${esc(profile?.name || user.email)}<br>${profile?.active ? "已入馆" : "等待负责人开通"}</p><form id="nickname-form"><label class="field">画师昵称<input name="name" required maxlength="40" value="${esc(profile?.name || "")}"></label><button class="primary">保存昵称</button></form><p class="muted">账号尾号：${esc(user.id.slice(-6))}，供负责人核对。</p><button id="replay-tour" class="outline">再看一次功能引导</button><button id="open-announcement" class="outline">打开公告栏</button><button id="signout" class="outline">退出登录</button>`,
+      `<p class="detail-copy">${esc(profile?.name || user.email)}<br>${profile?.active ? "已入馆" : "等待负责人开通"}</p><form id="nickname-form"><label class="field">画师昵称<input name="name" required maxlength="40" value="${esc(profile?.name || "")}"></label><button class="primary">保存昵称</button></form><p class="muted">账号尾号：${esc(user.id.slice(-6))}，供负责人核对。</p><button id="replay-tour" class="outline">再看一次功能引导</button><div class="toggle-row"><span id="announcement-switch-label">首页公告栏<small>显示美术组阶段公告</small></span><button type="button" role="switch" id="announcement-switch" class="switch" aria-labelledby="announcement-switch-label" aria-checked="${announcementShown()}"><span class="switch-knob"></span></button></div><button id="signout" class="outline">退出登录</button>`,
     );
     $("#nickname-form").onsubmit = async (e) => {
       e.preventDefault();
@@ -841,7 +841,7 @@ function account() {
         b.disabled = false;
       }
     };
-    $("#open-announcement").onclick = () => { $("#dialog").close(); openAnnouncement(); };
+    $("#announcement-switch").onclick = () => setAnnouncementShown(!announcementShown());
     $("#replay-tour").onclick = () => showTour(0);
     $("#signout").onclick = async () => {
       await client.auth.signOut();
@@ -850,8 +850,8 @@ function account() {
     return;
   }
   modal(
-    "登录 / 加入会馆",
-    '<p class="muted">可以直接浏览公开任务；用邮箱验证码登录后即可参与认领和交稿。</p><form id="login"><label class="field">画师昵称<input name="artist_name" required maxlength="40" autocomplete="nickname" placeholder="尽量和原表署名一致，便于负责人核对"></label><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
+    "登录会馆",
+    '<p class="muted">输入邮箱收验证码就能登录。注册过的邮箱会直接进原来的账号，不会新建。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required autocomplete="email"></label><label class="field">画师昵称<small class="muted">（第一次来才需要填，尽量和金山表署名一致）</small><input name="artist_name" maxlength="40" autocomplete="nickname" placeholder="已注册过可以不填"></label><button class="primary">发送验证码</button></form>',
   );
   $("#login").onsubmit = async (e) => {
     e.preventDefault();
@@ -927,6 +927,20 @@ $("#settings").onclick = () =>
     "会馆连接",
     `<p class="detail-copy">${demo ? "当前为本地演示。部署时在 config.js 填入 Supabase 项目 URL 和 publishable 公钥，执行数据库脚本后即可切换真实模式。" : "当前连接 Supabase。成员权限、验收与贡献记分由数据库验证。"}</p><p class="muted">作品暂以链接 / 网盘交付。贡献排行仅记录验收通过的任务。同一任务不会重复记分。</p>`,
   );
+// 公告栏开关：沿用 guild-announcement-display（open / collapsed / closed）。
+// 开 = 不是 closed（展开 / 收起照旧由公告右上角控制）；关 = closed。
+function announcementShown() {
+  let state; try { state = localStorage.getItem('guild-announcement-display'); } catch {}
+  return state !== 'closed';
+}
+function setAnnouncementShown(on) {
+  try { localStorage.setItem('guild-announcement-display', on ? 'open' : 'closed'); } catch {}
+  initAnnouncement();
+}
+function syncAnnouncementSwitch() {
+  const sw = document.querySelector('#announcement-switch');
+  if (sw) sw.setAttribute('aria-checked', String(announcementShown()));
+}
 function initAnnouncement() {
   const box = document.querySelector('.campaign-announcement');
   const body = document.querySelector('#announcement-body');
@@ -937,10 +951,11 @@ function initAnnouncement() {
   body.hidden = state === 'collapsed';
   toggle.textContent = body.hidden ? '⌄' : '⌃'; toggle.setAttribute('aria-label', body.hidden ? '展开公告' : '收起公告'); toggle.title = body.hidden ? '展开公告' : '收起公告';
   toggle.setAttribute('aria-expanded', String(!body.hidden));
+  syncAnnouncementSwitch();
   toggle.onclick = () => { body.hidden = !body.hidden; toggle.textContent = body.hidden ? '⌄' : '⌃'; toggle.setAttribute('aria-label', body.hidden ? '展开公告' : '收起公告'); toggle.title = body.hidden ? '展开公告' : '收起公告'; toggle.setAttribute('aria-expanded', String(!body.hidden)); save(body.hidden ? 'collapsed' : 'open'); };
   document.querySelector('#announcement-close').onclick = () => {
-    box.hidden = true; save('closed');
-    modal('公告已收好', '<p>以后可以从右上角信箱查看公告。登录后，点自己的昵称，在「功能引导」旁点「打开公告栏」，就能重新放回页面顶部。</p><button id="announcement-dismiss" class="primary">知道啦</button>');
+    box.hidden = true; save('closed'); syncAnnouncementSwitch();
+    modal('公告已收好', '<p>以后可以从右上角信箱查看公告。想放回页面顶部，登录后点自己的昵称，打开「首页公告栏」开关就行。</p><button id="announcement-dismiss" class="primary">知道啦</button>');
     document.querySelector('#announcement-dismiss').onclick = () => document.querySelector('#dialog').close();
   };
 }
