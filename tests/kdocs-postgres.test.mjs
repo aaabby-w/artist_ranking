@@ -79,6 +79,16 @@ console.log("建立仿真生产库");
 execFileSync("dropdb", ["--if-exists", DB]); execFileSync("createdb", [DB]);
 psql(file("tests/sql/supabase-stub.sql"));
 for (const f of ["supabase/schema.sql", "supabase/002_import.sql", "supabase/003_admin_tasks.sql"]) psql(file(f));
+// Guest copy as deployed in production: table maintained by trigger, RLS select policy.
+psql(`create table public.guild_task_preview(id uuid primary key references public.guild_tasks(id) on delete cascade,
+    title text, category text, brief text, points integer, status text, due_date date, created_at timestamptz, updated_at timestamptz);
+  alter table public.guild_task_preview enable row level security;
+  create policy guild_task_preview_read on public.guild_task_preview for select to anon, authenticated using (true);
+  revoke all on public.guild_task_preview from anon, authenticated; grant select on public.guild_task_preview to anon, authenticated;
+  alter publication supabase_realtime add table public.guild_task_preview;`);
+psql(file("supabase/ops/preview_trigger_before_007.sql") + `
+  create trigger guild_task_preview_changed after insert or delete or update on public.guild_tasks
+  for each row execute function public.guild_sync_task_preview();`);
 const [ADMIN_A, ADMIN_B, ARTIST] = ["a0000000-0000-4000-8000-000000000001", "a0000000-0000-4000-8000-000000000002", "a0000000-0000-4000-8000-000000000003"];
 psql(`insert into auth.users(id) values('${ADMIN_A}'),('${ADMIN_B}'),('${ARTIST}');
   update guild_profiles set name='负责人甲',role='admin',active=true where id='${ADMIN_A}';
@@ -87,11 +97,8 @@ psql(`insert into auth.users(id) values('${ADMIN_A}'),('${ADMIN_B}'),('${ARTIST}
 // Historical import: 98 灵卡 + 70 旧版参考 (as observed on the live guest view).
 psql(`insert into guild_tasks(title,category,brief,status,import_key,source_record) select (v->>0),(v->>1),(v->>2),'imported',(v->>3),(v->4) from jsonb_array_elements(${lit(
     [...active.map((c) => [c, "灵卡", "灵卡", "卡牌 · 灵卡"]), ...rebirth.map((c) => [c, "旧版参考", "重生之门旧卡牌", "卡牌 · 旧版参考"])]
-      .map(([c0, system, sh, cat], i) => { const c = cards.get(c0.id); return [c.name, cat, brief(c), "import:" + c.id,
+      .map(([c0, system, sh, cat], i) => { const c = cards.get(c0.id); return [c.name, cat, brief(c), "kdocs:chYu5VON9OzX:" + c.id,
         { system, sheet: sh, row: i + 2, card_id: c.id, artist: c.artist, status: c.status, url: "https://www.kdocs.cn/l/chYu5VON9OzX" }]; }))}) v;`);
-// Guest view as deployed (columns observed live).
-psql(`create view public.guild_task_preview as select id,title,category,brief,points,status,due_date,created_at,updated_at from public.guild_tasks;
-  revoke all on public.guild_task_preview from anon,authenticated; grant select on public.guild_task_preview to anon,authenticated;`);
 // Real platform activity before the sync goes live.
 const tid = (card) => one(`select id from guild_tasks where source_record->>'card_id'='${card}';`);
 const T = { guard: tid("guard"), claw: tid("claw"), metal: tid("metal"), legacy03: tid("legacy-03"), rebirthGold: tid("rebirth:金刃"), blink: tid("blink") };
@@ -120,7 +127,7 @@ psql(file("supabase/005_kdocs_incremental.sql"));
 }
 const inspect = () => psql(file("supabase/ops/00_inspect_readonly.sql"));
 const vInspect = rowVersions(); const report = inspect();
-assert.match(report, /mirror_cards \/ matched \(must be equal\)\|168 \/ 168/); assert.match(report, /preview_kind\|v/);
+assert.match(report, /mirror_cards \/ matched \(must be equal\)\|168 \/ 168/); assert.match(report, /preview_kind\|r/);
 assert.match(report, /cron jobs mentioning kdocs\|\(none\)/); assert.match(report, /\(missing\)/); assert.equal(rowVersions(), vInspect);
 const before = businessSnapshot();
 const guestBefore = one(`select count(*) from guild_task_preview;`, { role: "anon" });
@@ -132,9 +139,10 @@ console.log("执行 007");
 psql(file("supabase/007_kdocs_task_projection.sql"));
 psql(file("supabase/007_kdocs_task_projection.sql")); // re-running must be harmless
 assert.equal(one(`select count(*) from guild_tasks where kdocs_card_id is not null;`), "168"); ok("168 条导入任务全部按 同步ID/card_id 链接，无新建任务；重复执行 007 无副作用");
-ok("只读核查 SQL 可在升级前运行：报告 168/168 匹配、视图类型 v，且不写入任何行");
+ok("只读核查 SQL 可在升级前运行：报告 168/168 匹配、预览为表(r)，且不写入任何行");
 assert.equal(businessSnapshot(), before); ok("007 未改变任何分值/画师/状态/交稿/奖励/成员");
-assert.equal(one(`select count(*) from guild_task_preview;`, { role: "anon" }), "168"); ok("游客视图包装后数量不变（168）");
+assert.equal(one(`select count(*) from guild_task_preview;`, { role: "anon" }), "168"); assert.equal(one(`select count(*) from guild_task_preview where source_state is null and status='imported';`), "0");
+ok("游客预览加了 source_state 并回填，数量不变（168）");
 
 // ---------------------------------------------------------------- 168 -> 98 (the real situation)
 console.log("场景：原表从 168 张减到 98 张");
@@ -159,8 +167,9 @@ assert.equal(businessSnapshot(), before); ok("分值、画师、状态、交稿�
 assert.equal(one(`select count(*) from guild_tasks;`), "168"); ok("没有物理删除：任务仍是 168 条");
 assert.equal(one(`select count(*) from guild_tasks where source_removed_at is not null;`), "70");
 assert.equal(one(`select count(*) from guild_task_preview;`, { role: "anon" }), "99");
-assert.equal(one(`select count(*) from guild_task_preview p join guild_tasks t using(id) where t.status='imported';`), "94");
-ok("游客可见 99 = 原表 98 张（94 张未启用 + 4 张已转正式任务）+ 1 张已发布的旧版参考（原表已移除，正式任务保留）");
+assert.equal(one(`select count(*) from guild_task_preview where status='imported';`, { role: "anon" }), "94");
+assert.equal(one(`select count(*) from guild_task_preview;`), "168"); // rows kept, only hidden from guests
+ok("游客可见 99 = 原表 98 张（94 张未启用 + 4 张已转正式任务）+ 1 张已发布的旧版参考；预览表 168 行一行未删");
 assert.equal(one(`select status||'/'||(source_removed_at is not null) from guild_tasks where id='${T.rebirthGold}';`), "open/true"); ok("已发布的旧版卡被移除：任务保留并标记待核实");
 assert.equal(one(`select count(*) from guild_kdocs_cards where missing_since is not null;`), "70"); ok("镜像中 70 张软删除（missing_since），历史保留");
 
@@ -214,15 +223,17 @@ console.log("场景：新增、删除、恢复");
 const fresh = { id: "new-test-1", name: "测试新卡", owner: "通用", art: "光", status: "", cost: "1", artist: "", desc: "测试。", type: "攻击", mech: "", effect: "" };
 r = sync(sheet([...edited, fresh]));
 assert.equal(r.tasks_inserted, 1);
-assert.equal(one(`select status||'|'||category||'|'||coalesce(points::text,'null')||'|'||coalesce(assignee::text,'null') from guild_tasks where kdocs_card_id='new-test-1';`), "imported|卡牌 · 灵卡|null|null");
-assert.equal(one(`select count(*) from guild_task_preview p join guild_tasks t using(id) where t.kdocs_card_id='new-test-1';`, ), "1");
-ok("新增卡牌 → 新建「原表登记」记录：无分值、无画师，游客可见");
+assert.equal(one(`select status||'|'||category||'|'||coalesce(points::text,'null')||'|'||coalesce(assignee::text,'null')||'|'||import_key from guild_tasks where kdocs_card_id='new-test-1';`), "imported|卡牌 · 灵卡|null|null|kdocs:chYu5VON9OzX:new-test-1");
+assert.equal(one(`select count(*) from guild_task_preview where id=(select id from guild_tasks where kdocs_card_id='new-test-1');`), "1");
+assert.equal(one(`select source_state from guild_task_preview where title='测试新卡';`, { role: "anon" }), "unassigned");
+ok("新增卡牌 → 新建「原表登记」记录：无分值、无画师，沿用 kdocs:<文件>:<ID> 导入键，游客可见");
 assert.equal(sync(sheet([...edited, fresh])).tasks_inserted, 0); ok("再次同步不重复新建");
 const withoutDance = [...edited, fresh].filter((c) => c.id !== "dance");
 r = sync(sheet(withoutDance)); assert.equal(r.tasks_marked_removed, 1);
 const dance = tid("dance");
 assert.equal(one(`select count(*) from guild_task_preview where id='${dance}';`, { role: "anon" }), "0");
-assert.equal(one(`select count(*) from guild_tasks where id='${dance}';`), "1"); ok("删除未启用卡：游客列表隐藏，记录保留");
+assert.equal(one(`select count(*) from guild_tasks where id='${dance}';`), "1");
+assert.equal(one(`select source_state from guild_task_preview where id='${dance}';`), "removed"); ok("删除未启用卡：游客列表隐藏，任务和预览行都保留");
 psql(`select guild_activate_import('${dance}',10,null);`, { ...asA, expectError: "已从金山原表移除" }); ok("已移除的卡不能被确认成正式任务");
 r = sync(sheet([...edited, fresh])); assert.equal(r.tasks_restored, 1);
 assert.equal(one(`select count(*) from guild_task_preview where id='${dance}';`, { role: "anon" }), "1"); ok("恢复同一张卡（同一 同步ID）→ 重新显示，未产生重复");
@@ -267,7 +278,8 @@ for (const t of ["guild_tasks", "guild_kdocs_cards", "guild_kdocs_runs", "guild_
   psql(`select 1 from ${t} limit 1;`, { role: "anon", expectError: "permission denied" });
 ok("游客不能读任何业务表/同步表");
 assert.equal(psql(`select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns where table_name='guild_task_preview';`),
-  "id,title,category,brief,points,status,due_date,created_at,updated_at,source_state"); ok("游客视图只多一个不含姓名的 source_state 列");
+  "id,title,category,brief,points,status,due_date,created_at,updated_at,source_state"); ok("游客预览只多一个不含姓名的 source_state 列");
+psql(`update guild_task_preview set title='x';`, { role: "anon", expectError: "permission denied" }); ok("游客不能改预览表");
 for (const f of ["guild_kdocs_begin()", `guild_kdocs_project('全部卡牌')`, `guild_kdocs_apply(gen_random_uuid(),'[]')`, "guild_kdocs_approve(1)", `guild_kdocs_resolve(gen_random_uuid(),'dismiss')`])
   psql(`select ${f};`, { role: "anon", expectError: "permission denied" });
 for (const f of ["guild_kdocs_begin()", `guild_kdocs_project('全部卡牌')`, `guild_kdocs_apply(gen_random_uuid(),'[]')`])

@@ -15,8 +15,12 @@ begin
      or to_regprocedure('public.guild_kdocs_apply(uuid,jsonb)') is null then
     raise exception '请先执行 005_kdocs_incremental.sql';
   end if;
-  if to_regclass('public.guild_task_preview') is null then
-    raise exception 'guild_task_preview 不存在，请先核对游客视图';
+  -- Production: guild_task_preview is a TABLE copied from guild_tasks by trigger
+  -- guild_task_preview_changed -> guild_sync_task_preview(). Refuse anything else.
+  if (select relkind from pg_class where oid=to_regclass('public.guild_task_preview')) is distinct from 'r'
+     or to_regprocedure('public.guild_sync_task_preview()') is null
+     or not exists(select 1 from pg_trigger where tgname='guild_task_preview_changed' and tgrelid='public.guild_tasks'::regclass) then
+    raise exception 'guild_task_preview 不是由 guild_sync_task_preview 触发器维护的表，停止升级，请人工核对';
   end if;
   -- Every imported task must carry a unique card_id: that is the link key.
   select count(*) into n from public.guild_tasks
@@ -87,8 +91,11 @@ language plpgsql security definer set search_path='' as $$
 declare
   c record; t public.guild_tasks; n int;
   inserted int:=0; updated int:=0; flagged int:=0; removed int:=0; restored int:=0;
-  new_title text; new_brief text; src jsonb; synced jsonb; base_system text; base_url text;
+  new_title text; new_brief text; src jsonb; synced jsonb; base_system text; base_url text; key_prefix text;
 begin
+  select left(import_key, length(import_key)-length(kdocs_card_id)) into key_prefix
+    from public.guild_tasks where kdocs_card_id is not null and right(import_key, length(kdocs_card_id))=kdocs_card_id
+    group by 1 order by count(*) desc limit 1;
   select source_record->>'system', source_record->>'url' into base_system, base_url
     from public.guild_tasks where kdocs_card_id is not null and category='卡牌 · 灵卡'
     group by 1,2 order by count(*) desc limit 1;
@@ -106,7 +113,7 @@ begin
     synced:=jsonb_build_object('title',new_title,'brief',new_brief);
     if not found then
       insert into public.guild_tasks(title,category,brief,points,status,assignee,import_key,source_record,kdocs_card_id)
-      values(new_title,'卡牌 · 灵卡',new_brief,null,'imported',null,'kdocs:'||c.card_id,
+      values(new_title,'卡牌 · 灵卡',new_brief,null,'imported',null,coalesce(key_prefix,'kdocs:')||c.card_id,
         jsonb_build_object('system',coalesce(base_system,'灵卡'),'sheet',p_sheet,'row',(c.data->>'row')::int,
           'card_id',c.card_id,'artist',c.data->>'artist','status',c.data->>'status','url',base_url,'synced',synced),
         c.card_id);
@@ -254,30 +261,48 @@ end $$;
 revoke all on function public.guild_kdocs_resolve(uuid,text) from public,anon;
 grant execute on function public.guild_kdocs_resolve(uuid,text) to authenticated;
 
--- ---------------------------------------------------------------- guest view
--- Keep the existing definition (and its filters/options) and wrap it:
--- hide imported cards that left the sheet, expose a name-free source status.
-do $$
-declare k "char"; opts text[]; def text;
+-- ---------------------------------------------------------------- guest copy
+-- guild_task_preview stays a trigger-maintained copy (no rows deleted). It gains a
+-- name-free source_state; guests no longer see imported cards that left the sheet.
+alter table public.guild_task_preview add column if not exists source_state text;
+
+create or replace function public.guild_task_source_state(t public.guild_tasks) returns text
+language sql stable set search_path='' as $$
+  select case when t.status<>'imported' then null
+    when t.source_removed_at is not null then 'removed'
+    when t.source_record->>'status'='已递交终稿' then 'final'
+    when coalesce(trim(t.source_record->>'artist'),'')<>'' then 'assigned'
+    else 'unassigned' end
+$$;
+revoke all on function public.guild_task_source_state(public.guild_tasks) from public,anon,authenticated;
+
+-- Same body as the deployed version, plus source_state.
+create or replace function public.guild_sync_task_preview() returns trigger
+language plpgsql security definer set search_path='' as $$
 begin
-  select c.relkind, c.reloptions into k, opts from pg_class c where c.oid='public.guild_task_preview'::regclass;
-  if k is distinct from 'v' then raise exception 'guild_task_preview 不是普通视图（relkind=%），停止升级，请人工核对', k; end if;
-  if exists(select 1 from pg_attribute where attrelid='public.guild_task_preview'::regclass and attname='source_state' and not attisdropped) then
-    raise notice 'guild_task_preview 已包含 source_state，跳过'; return;
+  if tg_op = 'DELETE' then
+    delete from public.guild_task_preview where id = old.id;
+    return old;
   end if;
-  if not exists(select 1 from pg_attribute where attrelid='public.guild_task_preview'::regclass and attname='id' and not attisdropped) then
-    raise exception 'guild_task_preview 没有 id 列，无法安全包装';
-  end if;
-  def:=regexp_replace(pg_get_viewdef('public.guild_task_preview'::regclass,true),';\s*$','');
-  execute format($v$create or replace view public.guild_task_preview %s as
-    select p.*, case when t.status<>'imported' then null
-      when t.source_record->>'status'='已递交终稿' then 'final'
-      when coalesce(trim(t.source_record->>'artist'),'')<>'' then 'assigned'
-      else 'unassigned' end as source_state
-    from (%s) p join public.guild_tasks t on t.id=p.id
-    where t.source_removed_at is null or t.status<>'imported'$v$,
-    case when opts is null then '' else 'with ('||array_to_string(opts,',')||')' end, def);
+  insert into public.guild_task_preview
+    (id, title, category, brief, points, status, due_date, created_at, updated_at, source_state)
+  values
+    (new.id, new.title, new.category, new.brief, new.points, new.status,
+     new.due_date, new.created_at, new.updated_at, public.guild_task_source_state(new))
+  on conflict (id) do update set
+    title = excluded.title, category = excluded.category, brief = excluded.brief,
+    points = excluded.points, status = excluded.status, due_date = excluded.due_date,
+    created_at = excluded.created_at, updated_at = excluded.updated_at,
+    source_state = excluded.source_state;
+  return new;
 end $$;
+
+update public.guild_task_preview p set source_state=public.guild_task_source_state(t)
+  from public.guild_tasks t where t.id=p.id and p.source_state is distinct from public.guild_task_source_state(t);
+
+drop policy if exists guild_task_preview_read on public.guild_task_preview;
+create policy guild_task_preview_read on public.guild_task_preview for select to anon, authenticated
+  using (source_state is distinct from 'removed');
 
 -- ---------------------------------------------------------------- verify
 do $$
@@ -293,6 +318,8 @@ commit;
 -- Rollback (keeps all data; stops projection, restores 005 behaviour):
 --   1. re-run the guild_kdocs_apply definition from 005_kdocs_incremental.sql;
 --   2. drop trigger guild_kdocs_guard_activation on public.guild_tasks;
---   3. restore the saved view definition printed by: select pg_get_viewdef('public.guild_task_preview'::regclass,true);
---      (save it BEFORE running 007);
+--   3. restore the original preview trigger function (body without source_state, kept in
+--      supabase/ops/preview_trigger_before_007.sql) and the policy:
+--      drop policy guild_task_preview_read on public.guild_task_preview;
+--      create policy guild_task_preview_read on public.guild_task_preview for select to anon,authenticated using (true);
 --   4. the added columns can stay (nullable, unused) or be dropped after review.
