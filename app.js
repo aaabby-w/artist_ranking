@@ -31,7 +31,9 @@ let cfg = window.GUILD_CONFIG,
   seq = 0,
   channel;
 const DEMO = "art-guild-demo-v1",
-  demo = !cfg.supabaseUrl || !cfg.supabaseKey;
+  demo = !cfg.supabaseUrl || !cfg.supabaseKey,
+  UPLOAD_BUCKET = "guild-submissions",
+  MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const uid = () => crypto.randomUUID(),
   now = () => new Date().toISOString(),
   month = () =>
@@ -144,6 +146,7 @@ function people(rows) {
 }
 function render() {
   profile = data.profiles.find((p) => p.id === user?.id);
+  if (!demo && !user && view === "mine") view = "board";
   prepareAdmin();
   $("#account").textContent = user
     ? "○　" + (profile?.name || "等待入馆")
@@ -153,7 +156,7 @@ function render() {
     : user && !profile?.active
       ? "账号已登录，等待负责人开通成员权限。"
       : !user
-        ? "请先登录会馆。任务和作品仅向已开通的成员展示。"
+        ? "游客可以浏览公开任务；登录后可以认领和交稿。"
         : "欢迎来到会馆。按自己的时间认领，验收通过后自动记录贡献。";
   $("#new-task").hidden = profile?.role !== "admin";
   $("#stats").innerHTML = [
@@ -183,7 +186,9 @@ function render() {
         `<div class="stat"><small>${a}</small><strong>${b}<span>${c}</span></strong></div>`,
     )
     .join("");
-  $("#top").innerHTML = people(ranking(month()).slice(0, 3));
+  $("#top").innerHTML = !demo && !user
+    ? '<p class="muted">登录后可查看本月贡献。</p>'
+    : people(ranking(month()).slice(0, 3));
   document
     .querySelectorAll("nav button")
     .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -213,6 +218,11 @@ function render() {
     return;
   }
   if (view === "rank") {
+    if (!demo && !user) {
+      $("#list").innerHTML = '<div class="empty">登录后可以查看贡献芳名录。</div>';
+      $("#count").textContent = "";
+      return;
+    }
     $("#list").innerHTML =
       '<div class="rank-list">' +
       phaseHTML() +
@@ -267,10 +277,30 @@ async function load() {
     return;
   }
   if (!user) {
-    ++seq;
-    data = { tasks: [], profiles: [], submissions: [], awards: [] };
-    $("#connection").textContent = "请登录后查看会馆";
-    render();
+    const n = ++seq;
+    try {
+      const { data: tasks, error: readError } = await client
+        .from("guild_task_preview")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (readError) throw readError;
+      if (n !== seq) return;
+      data = {
+        tasks: tasks || [],
+        profiles: [],
+        submissions: [],
+        awards: [],
+        campaign: [],
+      };
+      $("#connection").textContent = "游客浏览 · 登录后可认领";
+      render();
+    } catch (e) {
+      if (n !== seq) return;
+      data = { tasks: [], profiles: [], submissions: [], awards: [], campaign: [] };
+      $("#connection").textContent = "公开任务读取失败";
+      render();
+      error(e);
+    }
     return;
   }
   const n = ++seq;
@@ -287,6 +317,7 @@ async function load() {
     for (const x of r) if (x.error) throw x.error;
     if (n !== seq) return;
     tables.forEach((t, i) => (data[t] = r[i].data));
+    $("#connection").textContent = "● 已连接";
     render();
   } catch (e) {
     $("#connection").textContent = "读取失败 · 点击刷新重试";
@@ -413,6 +444,66 @@ async function act(action, id, extra = {}) {
     buttons.forEach((b) => (b.disabled = false));
   }
 }
+function uploadedImagePath(url) {
+  if (demo || !cfg.supabaseUrl || typeof url !== "string") return null;
+  const prefix =
+    cfg.supabaseUrl.replace(/\/+$/, "") +
+    `/storage/v1/object/authenticated/${UPLOAD_BUCKET}/`;
+  if (!url.startsWith(prefix)) return null;
+  const path = url.slice(prefix.length);
+  return /^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(png|jpg|webp)$/.test(path)
+    ? path
+    : null;
+}
+
+async function showUploadedImages() {
+  const links = [...$("#dialog").querySelectorAll("a[data-upload-path]")];
+  for (const link of links) {
+    const path = link.dataset.uploadPath;
+    try {
+      const { data: signed, error: signError } = await client.storage
+        .from(UPLOAD_BUCKET)
+        .createSignedUrl(path, 3600);
+      if (signError) throw signError;
+      if (!link.isConnected) continue;
+      link.href = signed.signedUrl;
+      link.textContent = "打开上传的图片 ↗";
+      const img = document.createElement("img");
+      img.src = signed.signedUrl;
+      img.alt = "画师上传的作品";
+      img.loading = "lazy";
+      img.style.cssText =
+        "display:block;width:auto;max-width:100%;max-height:420px;object-fit:contain;margin-top:12px;border-radius:12px;";
+      link.insertAdjacentElement("afterend", img);
+    } catch (e) {
+      if (link.isConnected) {
+        link.removeAttribute("href");
+        link.textContent = "图片暂时无法加载，请联系负责人";
+      }
+      console.error("Unable to load image", e);
+    }
+  }
+}
+
+async function uploadSubmissionImage(task, file) {
+  if (!user || !profile?.active) throw Error("请先登录会馆再上传图片");
+  const extensions = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+  };
+  const ext = extensions[file.type];
+  if (!ext) throw Error("只支持 PNG、JPG、WebP 图片");
+  if (file.size <= 0 || file.size > MAX_IMAGE_BYTES)
+    throw Error("图片必须小于或等于 10 MB");
+  const path = `${user.id}/${task.id}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadError } = await client.storage
+    .from(UPLOAD_BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (uploadError) throw uploadError;
+  return `${cfg.supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/authenticated/${UPLOAD_BUCKET}/${path}`;
+}
+
 function detail(id) {
   const t = data.tasks.find((t) => t.id === id);
   if (!t) return;
@@ -421,21 +512,52 @@ function detail(id) {
   const subs = data.submissions.filter((s) => s.task_id === id);
   modal(
     t.title,
-    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${importDetail(t, admin)}${subs.map((s) => `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p><a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`).join("")}${own && ["active", "changes"].includes(t.status) ? '<form id="submit-form"><label class="field">作品或网盘链接<input name="url" type="url" required placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="2000"></textarea></label><button class="primary">提交验收</button></form>' : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过并记入贡献</button><button class="outline" id="changes">请画师修改</button>' : ""}</div>`,
+    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
+      const path = uploadedImagePath(s.url);
+      const link = path
+        ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
+        : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
+      return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
+    }).join("")}${own && ["active", "changes"].includes(t.status) ? '<form id="submit-form"><label class="field">上传作品图片（PNG / JPG / WebP，最多 10 MB）<input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="2000"></textarea></label><button class="primary" type="submit">提交验收</button></form>' : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过并记入贡献</button><button class="outline" id="changes">请画师修改</button>' : ""}</div>`,
   );
   bindImportForm(t);
+  if (!demo && user) void showUploadedImages();
   $("#edit-task")?.addEventListener("click", () => newTask(t));
-  $("#claim")?.addEventListener("click", () => act("claim", id));
+  $("#claim")?.addEventListener("click", () => {
+    if (!demo && !user) {
+      $("#dialog").close();
+      account();
+      return;
+    }
+    act("claim", id);
+  });
   $("#release")?.addEventListener("click", () => act("release", id));
-  $("#submit-form")?.addEventListener("submit", (e) => {
+  $("#submit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = new FormData(e.target);
+    if (busy) return;
+    const form = e.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const f = new FormData(form);
+    const file = form.elements.image.files[0];
+    let url = String(f.get("url") || "").trim();
+    button.disabled = true;
     try {
-      const url = safeURL(f.get("url"));
-      if (url === "#") throw Error("请输入有效的 https 或 http 链接");
-      act("submit", id, { url, note: f.get("note").trim() });
+      if (file) {
+        if (demo) throw Error("演示模式不支持真实图片上传，请用链接演示");
+        toast("正在上传图片，请不要关闭页面…");
+        url = await uploadSubmissionImage(t, file);
+      } else {
+        url = safeURL(url);
+        if (url === "#") throw Error("请上传图片，或填写有效的作品链接");
+      }
+      await act("submit", id, {
+        url,
+        note: String(f.get("note") || "").trim(),
+      });
     } catch (e) {
       error(e);
+    } finally {
+      if (button.isConnected) button.disabled = false;
     }
   });
   for (const a of ["approve", "changes"])
@@ -486,7 +608,7 @@ function account() {
         if (r.error) throw r.error;
         await load();
         $("#dialog").close();
-        toast("昵称已保存，请负责人核对并开通。");
+        toast("昵称已保存。");
       } catch (e) {
         error(e);
         b.disabled = false;
@@ -500,7 +622,7 @@ function account() {
   }
   modal(
     "登录 / 加入会馆",
-    '<p class="muted">使用邮箱验证码登录。新成员需要负责人开通，才能查看和认领任务。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
+    '<p class="muted">可以直接浏览公开任务；用邮箱验证码登录后即可参与认领和交稿。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
   );
   $("#login").onsubmit = async (e) => {
     e.preventDefault();
@@ -544,6 +666,10 @@ document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-view],[data-filter],[data-task]");
   if (!b) return;
   if (b.dataset.view) {
+    if (!demo && !user && b.dataset.view === "mine") {
+      account();
+      return;
+    }
     view = b.dataset.view;
     filter = "all";
     render();
@@ -623,10 +749,17 @@ async function init() {
         { event: "*", schema: "public", table: "guild_" + table },
         () => scheduleLoad(),
       );
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "guild_task_preview" },
+      () => { if (!user) scheduleLoad(); },
+    );
     channel.subscribe((status) => {
-      $("#connection").textContent =
-        status === "SUBSCRIBED" ? "● 实时已连接" : "○ 连接中断 · 将自动重连";
-      if (status === "SUBSCRIBED") load();
+      if (status === "SUBSCRIBED") {
+        load();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        $("#connection").textContent = "○ 连接中断 · 点击刷新";
+      }
     });
     addEventListener("focus", () => load());
     addEventListener("online", () => load());
@@ -638,6 +771,7 @@ async function init() {
 }
 
 function taskLabel(t) {
+  if (!demo && !user && t.status === "imported") return "原表登记";
   if (t.status !== "imported") return labels[t.status] || t.status;
   return t.source_record?.status === "已递交终稿"
     ? "原表已交终稿"
@@ -646,6 +780,12 @@ function taskLabel(t) {
       : "原表未分配";
 }
 function taskArtist(t) {
+  if (!demo && !user) {
+    if (t.status === "open") return "等待认领";
+    if (t.status === "done") return "已完成";
+    if (t.status === "imported") return "原表登记";
+    return "已有画师负责";
+  }
   return t.assignee
     ? name(t.assignee)
     : t.status === "imported"
@@ -1027,7 +1167,7 @@ async function adminRPC(name, args, demoAction) {
 function manageMembers() {
   modal(
     "画师管理",
-    `<p class="muted">请画师先用邮箱验证码登录，并在“我的账号”填写昵称。核对本人后再开通；原表署名不会自动建立账号。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>状态</th><th>操作</th></tr></thead><tbody>${[
+    `<p class="muted">画师可使用邮箱验证码登录并填写昵称。管理员可管理已注册的画师账号；原表署名不会自动建立账号。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>状态</th><th>操作</th></tr></thead><tbody>${[
       ...data.profiles,
     ]
       .sort(
