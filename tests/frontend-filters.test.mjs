@@ -123,6 +123,10 @@ const reward = vm.runInContext(`rewardHTML()`, ctx);
 assert.doesNotMatch(reward, /稿酬|计件|额外感谢|统计期内提交/); assert.match(reward, /DDL/);
 console.log("  ✓ 奖励文案精简，不再出现“额外感谢，不是稿酬或计件单价”");
 
+// A historical attachment must appear even while the source card is still imported.
+T.set({user:{id:"a1"},profile:null,view:"gallery",filter:"all",data:{...base,tasks,submissions:[{...gallerySubs[0],task_id:"3"}]}});T.render();
+assert.match(el("#list").innerHTML,/data-work-path=/);
+
 // Publish form wording
 T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks } }); T.render();
 const finalForm = T.importDetail(tasks[2], true), namedForm = T.importDetail(tasks[1], true), openForm = T.importDetail(tasks[0], true);

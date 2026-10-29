@@ -1305,7 +1305,8 @@ function galleryItems() {
       const sub = (award && subs.find((s) => s.id === award.submission_id)) || subs[0] || null;
       items.push({ t, sub, kind: t.status, at: sub?.created_at || t.updated_at || t.created_at });
     } else if (t.status === "imported" && sourceState(t) === "final") {
-      items.push({ t, sub: null, kind: "sheet", at: t.updated_at || t.created_at });
+      const sub = data.submissions.filter(s => s.task_id === t.id).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null;
+      items.push({ t, sub, kind: "sheet", at: sub?.created_at || t.updated_at || t.created_at });
     }
   }
   const order = { done: 0, submitted: 1, sheet: 2 };
