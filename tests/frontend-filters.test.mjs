@@ -8,7 +8,7 @@ const source = readFileSync(new URL("../app.js", import.meta.url), "utf8").repla
 const els = new Map();
 const el = (key) => {
   if (!els.has(key)) els.set(key, { key, innerHTML: "", textContent: "", hidden: false, value: "", dataset: {},
-    classList: { toggle() {}, add() {}, remove() {} }, style: {}, addEventListener() {}, after(x) { els.set("#import-summary", x); },
+    classList: { toggle() {}, add() {}, remove() {} }, style: {}, setAttribute() {}, addEventListener() {}, after(x) { els.set("#import-summary", x); },
     querySelector: () => null, querySelectorAll: () => [], focus() {}, setSelectionRange() {}, showModal() {}, close() {}, open: false });
   return els.get(key);
 };
