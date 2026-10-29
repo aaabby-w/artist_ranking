@@ -1,0 +1,10 @@
+import {normalize} from '../supabase/functions/kdocs-sync/normalize.mjs';
+import assert from 'node:assert/strict';
+const headers=['','完成情况','费用','负责画师','卡牌名称','谁的卡','技能介绍','卡牌类型','机制简述','效果/数值','同步ID'];
+const a={sheet_name:'全部卡牌',complete:true,rows:[[],headers,['art','已递交终稿',99,'artist','card','owner','desc','','','','fixed']]};
+const payload={version:2,complete:true,sheets:[a]};
+const cards=normalize(payload)[0].cards; assert.equal(cards[0].id,'fixed');assert.equal(cards[0].data.description,'desc');assert.equal(cards[0].points,undefined);assert.equal(cards[0].status,undefined);
+assert.equal(normalize({...payload,sheets:[a,{...a,sheet_name:'第二表'}]}).length,2);
+assert.throws(()=>normalize({...payload,complete:false}));assert.throws(()=>normalize({...payload,sheets:[a,a]}));
+assert.throws(()=>normalize({...payload,sheets:[{...a,rows:[[],headers,a.rows[2],a.rows[2]]}]}));
+console.log('PASS: complete-only snapshots, multi-sheet parsing, duplicate rejection, no task/score projection');
