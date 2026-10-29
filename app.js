@@ -1276,7 +1276,7 @@ function phaseRanking() {
 }
 function rewardHTML() {
   const c = campaign();
-  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p><h3 class="reward-title">本期最高贡献奖励 <strong>¥100</strong></h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL 还在定～"}</p><p>本期贡献榜第一名奖励 100 元，并列第一均分。资金由自愿赞助提供，用于本期美术组专项感谢。</p><p>DDL 前交的稿，验收通过都算数。</p>`;
+  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p><h3 class="reward-title">本期最高贡献奖励 <strong>¥100</strong></h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL 还在定～"}</p><p>本期贡献榜第一名奖励 100 元，并列第一均分。资金由自愿赞助提供，用于本期美术组专项感谢。</p><p>DDL 前提交的最终通过版本，计入本期贡献。</p><p>我们想赶上罗小黑 TV 更新时大家又聚到一起的机会，多做出一些能真正玩起来的完整玩法，让更多喜欢小黑的人看到这个企划。</p><details class="reward-why"><summary>为什么有 DDL 和这 100 元？</summary><p>美术组人多，一份玩法也常常要等好几份素材才能拼起来。如果一直没有约定好的时间，事情很容易一拖再拖，刚加入时的热情也会慢慢消耗。所以定一个阶段性的 DDL，让大家知道这段时间一起往哪里赶，也方便开发安排实装。</p><p>这 100 元来自自愿赞助，是给本期投入最多的小画师的一点感谢。榜单有名次，但每一份按约定完成的作品，都在帮游戏往前走。</p><p>认领前先看看自己的时间。遇到考试、工作或画不完的情况，提前和负责人说，我们一起调整安排；需要归还任务也没关系，别一个人硬扛 (｡･ω･｡)</p></details>`;
 }
 function phaseHTML() {
   const c = campaign(),
