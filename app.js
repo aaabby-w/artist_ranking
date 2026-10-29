@@ -19,12 +19,87 @@ function openInbox(){
  document.querySelectorAll('[data-read-note]').forEach(b=>b.onclick=async()=>{if(inboxBusy)return;inboxBusy=true;try{const r=await client.rpc('guild_read_notification',{p_id:b.dataset.readNote});if(r.error)throw r.error;await refreshInbox();openInbox();}catch(e){error(e)}finally{inboxBusy=false}});
  document.querySelectorAll('[data-inbox-task]').forEach(b=>b.onclick=()=>detail(b.dataset.inboxTask));
 }
-function showTour(step){
- view=["board","board","mine","gallery","rank"][step];render();
- const steps=[['欢迎来到会馆','这是给你的第一封站内欢迎信。先用原表或群里熟悉的昵称登记，方便大家认出你。'],['任务公告栏','这里可以看交付要求、分值和截止日期。开通后，可认领仍开放的任务。'],['我的画桌','认领或由负责人分配的任务都在这里。上传 PNG、JPG 或 WebP 后提交验收，打回时查看修改意见再提交。'],['稿件展示与贡献榜','验收通过的作品会展示，贡献按验收记录统计。历史稿件由负责人补传，原表署名需核对后连接账号。'],['信箱与奖励','右上角信封有红点并轻晃时，表示有新通知。100 元是本期美术组专项奖励，并列第一均分。']];
- const [title,body]=steps[step];modal(`${step+1} / ${steps.length} · ${title}`,`<p class="detail-copy">${esc(body)}</p><div class="actions"><button id="tour-next" class="primary">${step===steps.length-1?'我知道啦，开始逛逛':'下一步'}</button><button id="tour-skip">稍后再看</button></div>`);
- document.querySelector('#tour-next').onclick=async()=>{if(step<steps.length-1)return showTour(step+1);const r=await client.rpc('guild_finish_onboarding');if(r.error)return error(r.error);profile.onboarding_done=true;document.querySelector('#dialog').close();};
- document.querySelector('#tour-skip').onclick=()=>document.querySelector('#dialog').close();
+let tourCleanup = null;
+function showTour(step) {
+  const steps = [
+    ["board", "#account", "先认识一下", "这里是你的账号。昵称尽量与群里或原表一致，方便负责人核对；以后也能从这里重新打开引导。"],
+    ["board", 'nav [data-view="board"]', "找到想画的任务", "从任务公告栏查看要求、分值和截止日期，再认领适合自己的任务。点开卡牌就能看详情。"],
+    ["mine", 'nav [data-view="mine"]', "交稿来这里", "认领或分配给你的任务会出现在我的画桌。打开任务上传图片、提交验收；需要修改时，也在这里查看意见。"],
+    ["gallery", 'nav [data-view="gallery"]', "看看大家的作品", "稿件展示里可以查看已上传的图片。历史稿件由负责人补传，原表署名核对后会连接到你的账号。"],
+    ["rank", 'nav [data-view="rank"]', "贡献与本期奖励", "验收通过后才记录贡献。本期美术组第一名奖励 100 元，并列第一均分，具体统计时间看榜单说明。"],
+    ["rank", "#inbox", "新消息在这里", "信封出现红点并轻晃，就有未读通知：新任务、验收通过或修改意见。点开信封即可查看。"],
+  ];
+  tourCleanup?.(false);
+  document.querySelector('#dialog').close();
+  tourOpen = true;
+  const [page, selector, title, body] = steps[step];
+  view = page;
+  render();
+  const target = document.querySelector(selector);
+  if (!target || target.hidden) return;
+  target.scrollIntoView({block: 'nearest', inline: 'nearest', behavior: 'instant'});
+  const panel = document.createElement('section');
+  panel.className = 'tour-tip';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'false');
+  panel.setAttribute('aria-labelledby', 'tour-title');
+  panel.tabIndex = -1;
+  panel.innerHTML = `<span class="tour-arrow" aria-hidden="true"></span><div class="tour-top"><span>会馆小指引 · ${step + 1} / ${steps.length}</span><button id="tour-skip" aria-label="关闭引导">×</button></div><h3 id="tour-title">${esc(title)}</h3><p>${esc(body)}</p><div class="tour-actions">${step ? '<button id="tour-prev">上一步</button>' : '<span>慢慢来，不着急 (｡･ω･｡)</span>'}<button id="tour-next" class="primary">${step === steps.length - 1 ? '我知道啦' : '下一步 →'}</button></div><p class="tour-error" role="status"></p>`;
+  const ring = document.createElement('div');
+  ring.className = 'tour-ring';
+  ring.setAttribute('aria-hidden', 'true');
+  document.body.append(ring, panel);
+  let frame;
+  const position = () => {
+    const r = target.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    const gap = 16, pad = 12, w = panel.offsetWidth, h = panel.offsetHeight;
+    const options = [
+      ['right', r.right + gap, r.top + r.height / 2 - h / 2],
+      ['bottom', r.left + r.width / 2 - w / 2, r.bottom + gap],
+      ['top', r.left + r.width / 2 - w / 2, r.top - gap - h],
+      ['left', r.left - gap - w, r.top + r.height / 2 - h / 2],
+    ];
+    const fits = ([side, x, y]) => side === 'right' || side === 'left'
+      ? x >= pad && x + w <= vw - pad : y >= pad && y + h <= vh - pad;
+    const [side, x, y] = options.find(fits) || options[1];
+    const left = Math.max(pad, Math.min(x, vw - w - pad));
+    const top = Math.max(pad, Math.min(y, vh - h - pad));
+    panel.style.left = `${left}px`; panel.style.top = `${top}px`;
+    panel.dataset.side = side;
+    panel.style.setProperty('--arrow-x', `${Math.max(20, Math.min(w - 20, r.left + r.width / 2 - left))}px`);
+    panel.style.setProperty('--arrow-y', `${Math.max(20, Math.min(h - 20, r.top + r.height / 2 - top))}px`);
+    Object.assign(ring.style, {left: `${r.left - 4}px`, top: `${r.top - 4}px`, width: `${r.width + 8}px`, height: `${r.height + 8}px`});
+  };
+  const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(position); };
+  const keydown = (e) => { if(e.key === 'Escape') { e.preventDefault(); tourCleanup?.(); } };
+  tourCleanup = (restore = true) => {
+    cancelAnimationFrame(frame);
+    window.removeEventListener('resize', schedule);
+    window.removeEventListener('scroll', schedule, true);
+    document.removeEventListener('keydown', keydown);
+    panel.remove(); ring.remove(); tourCleanup = null;
+    if (restore && target.isConnected) target.focus({preventScroll: true});
+  };
+  window.addEventListener('resize', schedule);
+  window.addEventListener('scroll', schedule, true);
+  document.addEventListener('keydown', keydown);
+  position(); panel.focus({preventScroll: true});
+  panel.querySelector('#tour-skip').onclick = () => tourCleanup?.();
+  if (step) panel.querySelector('#tour-prev').onclick = () => showTour(step - 1);
+  panel.querySelector('#tour-next').onclick = async (e) => {
+    if (step < steps.length - 1) return showTour(step + 1);
+    e.currentTarget.disabled = true;
+    try {
+      if (!demo) { const r = await client.rpc('guild_finish_onboarding'); if (r.error) throw r.error; }
+      if (profile) profile.onboarding_done = true;
+      tourCleanup?.();
+    } catch (_) {
+      if (!panel.isConnected) return;
+      panel.querySelector('.tour-error').textContent = '暂时没能保存进度，请重试，或点 × 关闭。';
+      panel.querySelector('#tour-next').disabled = false;
+    }
+  };
 }
 
 const $ = (s) => document.querySelector(s),
