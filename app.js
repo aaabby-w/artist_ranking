@@ -137,13 +137,14 @@ function people(rows) {
     rows
       .map(
         (p, i) =>
-          `<div class="person"><b>${i + 1}</b><span class="avatar">${esc(p.name.slice(0, 1))}</span><div class="name">${esc(p.name)}<small>${p.count} 份委托已完成</small></div><strong>${p.total}<small>贡献分</small></strong></div>`,
+          `<div class="person"><b>${rows.findIndex((row) => row.total === p.total) + 1}</b><span class="avatar">${esc(p.name.slice(0, 1))}</span><div class="name">${esc(p.name)}<small>${p.count} 份任务已完成</small></div><strong>${p.total}<small>贡献分</small></strong></div>`,
       )
-      .join("") || '<p class="muted">第一份完成的委托，将在这里留下名字。</p>'
+      .join("") || '<p class="muted">第一份完成的任务，将在这里留下名字。</p>'
   );
 }
 function render() {
   profile = data.profiles.find((p) => p.id === user?.id);
+  prepareAdmin();
   $("#account").textContent = user
     ? "○　" + (profile?.name || "等待入馆")
     : "○　登录会馆";
@@ -152,19 +153,19 @@ function render() {
     : user && !profile?.active
       ? "账号已登录，等待负责人开通成员权限。"
       : !user
-        ? "请先登录会馆。委托和作品仅向已开通的成员展示。"
+        ? "请先登录会馆。任务和作品仅向已开通的成员展示。"
         : "欢迎来到会馆。按自己的时间认领，验收通过后自动记录贡献。";
   $("#new-task").hidden = profile?.role !== "admin";
   $("#stats").innerHTML = [
     [
       "等待认领",
       data.tasks.filter((t) => t.status === "open").length,
-      "份委托",
+      "份任务",
     ],
     [
       "正在创作",
       data.tasks.filter((t) => ["active", "changes"].includes(t.status)).length,
-      "份心意",
+      "份任务",
     ],
     [
       "等待验收",
@@ -187,27 +188,35 @@ function render() {
     .querySelectorAll("nav button")
     .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $("#crumb").textContent = {
-    board: "委托公告栏",
+    admin: "负责人工作台",
+    board: "任务公告栏",
     mine: "我的画桌",
     rank: "贡献芳名录",
   }[view];
   $("#section-title").textContent = {
+    admin: "发任务、分画师、看交稿。",
     board: "今天，想画点什么？",
     mine: "给每一份灵感，留一点时间。",
     rank: "每一笔，都算数。",
   }[view];
   $("#section-label").textContent =
     view === "rank" ? "THANK YOU FOR CREATING" : "TAKE A LITTLE QUEST";
-  $("#toolbar").hidden = view === "rank";
+  $("#toolbar").hidden = view === "rank" || view === "admin";
   document
     .querySelectorAll("[data-filter]")
     .forEach((b) =>
       b.classList.toggle("selected", b.dataset.filter === filter),
     );
   renderImportSummary();
+  if (view === "admin") {
+    renderAdmin();
+    return;
+  }
   if (view === "rank") {
     $("#list").innerHTML =
-      '<div class="rank-list"><p class="muted">累计贡献 · 相同分数按昵称排列 · 仅记录已验收任务</p>' +
+      '<div class="rank-list">' +
+      phaseHTML() +
+      '<h3>累计贡献</h3><p class="muted">同分并列，昵称仅用于展示排序 · 仅记录已验收任务</p>' +
       people(ranking()) +
       historySummary() +
       "</div>";
@@ -225,15 +234,24 @@ function render() {
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
-  $("#count").textContent = tasks.length + " 份委托";
+  tasks.sort((a, b) => {
+    if (a.source_record && b.source_record)
+      return (
+        Number(a.source_record.system === "旧版参考") -
+          Number(b.source_record.system === "旧版参考") ||
+        a.source_record.row - b.source_record.row
+      );
+    return Date.parse(b.created_at) - Date.parse(a.created_at);
+  });
+  $("#count").textContent = tasks.length + " 份任务";
   $("#list").innerHTML =
     tasks
       .map(
         (t) =>
-          `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span></div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "时间可协商 · 不催稿"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
+          `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span></div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "DDL 未设 · 可与负责人协商"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
       )
       .join("") ||
-    '<div class="empty">这里暂时没有委托。<br>可以换个筛选，或去公告栏认领喜欢的任务。</div>';
+    '<div class="empty">这里暂时没有任务。<br>可以换个筛选，或去公告栏认领喜欢的任务。</div>';
 }
 function modal(title, body) {
   $("#dialog-title").textContent = title;
@@ -257,7 +275,7 @@ async function load() {
   }
   const n = ++seq;
   try {
-    const tables = ["tasks", "profiles", "submissions", "awards"];
+    const tables = ["tasks", "profiles", "submissions", "awards", "campaign"];
     const r = await Promise.all(
       tables.map((t) =>
         client
@@ -284,20 +302,26 @@ async function act(action, id, extra = {}) {
     if (!profile?.active) throw Error("请先登录并等待负责人开通成员权限。");
     if (demo) {
       const t = data.tasks.find((t) => t.id === id);
-      if (action === "create") {
+      if (action === "create" || action === "edit") {
         if (profile.role !== "admin") throw Error("需要负责人权限");
-        data.tasks.unshift({
-          ...extra,
-          id: uid(),
-          status: "open",
-          assignee: null,
-          created_at: now(),
-          updated_at: now(),
-        });
+        if (action === "edit") {
+          if (!t || t.status !== "open") throw Error("只有未认领任务可以修改");
+          Object.assign(t, extra, {
+            status: extra.assignee ? "active" : "open",
+            updated_at: now(),
+          });
+        } else
+          data.tasks.unshift({
+            ...extra,
+            id: uid(),
+            status: extra.assignee ? "active" : "open",
+            created_at: now(),
+            updated_at: now(),
+          });
       } else {
-        if (!t) throw Error("委托不存在");
+        if (!t) throw Error("任务不存在");
         if (action === "claim") {
-          if (t.status !== "open") throw Error("这份委托已被认领");
+          if (t.status !== "open") throw Error("这份任务已被认领");
           t.assignee = user.id;
           t.status = "active";
         } else if (action === "release") {
@@ -338,6 +362,7 @@ async function act(action, id, extra = {}) {
               id: uid(),
               task_id: id,
               artist_id: t.assignee,
+              submission_id: data.submissions.find((s) => s.task_id === id)?.id,
               points: t.points,
               created_at: now(),
             });
@@ -348,8 +373,16 @@ async function act(action, id, extra = {}) {
       render();
     } else {
       let r;
-      if (action === "create")
-        r = await client.from("guild_tasks").insert(extra);
+      if (action === "create" || action === "edit")
+        r = await client.rpc("guild_save_task", {
+          p_task: id,
+          p_title: extra.title,
+          p_category: extra.category,
+          p_brief: extra.brief,
+          p_points: extra.points,
+          p_due: extra.due_date,
+          p_assignee: extra.assignee,
+        });
       else
         r = await client.rpc("guild_action", {
           p_task: id,
@@ -365,11 +398,12 @@ async function act(action, id, extra = {}) {
     toast(
       {
         claim: "认领成功，期待你的作品。",
-        release: "已归还委托，等你有空再来。",
+        release: "已归还任务，等你有空再来。",
         submit: "交稿成功，等待负责人验收。",
         approve: "已通过验收，贡献已记入芳名录。",
         changes: "修改意见已送达。",
-        create: "新委托已贴上公告栏。",
+        create: "任务已发布。",
+        edit: "任务已更新。",
       }[action],
     );
   } catch (e) {
@@ -387,9 +421,10 @@ function detail(id) {
   const subs = data.submissions.filter((s) => s.task_id === id);
   modal(
     t.title,
-    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${importDetail(t, admin)}${subs.map((s) => `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p><a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`).join("")}${own && ["active", "changes"].includes(t.status) ? '<form id="submit-form"><label class="field">作品或网盘链接<input name="url" type="url" required placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="2000"></textarea></label><button class="primary">提交验收</button></form>' : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份委托</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还委托</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过并记入贡献</button><button class="outline" id="changes">请画师修改</button>' : ""}</div>`,
+    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${importDetail(t, admin)}${subs.map((s) => `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p><a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`).join("")}${own && ["active", "changes"].includes(t.status) ? '<form id="submit-form"><label class="field">作品或网盘链接<input name="url" type="url" required placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="2000"></textarea></label><button class="primary">提交验收</button></form>' : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过并记入贡献</button><button class="outline" id="changes">请画师修改</button>' : ""}</div>`,
   );
   bindImportForm(t);
+  $("#edit-task")?.addEventListener("click", () => newTask(t));
   $("#claim")?.addEventListener("click", () => act("claim", id));
   $("#release")?.addEventListener("click", () => act("release", id));
   $("#submit-form")?.addEventListener("submit", (e) => {
@@ -437,9 +472,26 @@ function account() {
   }
   if (user) {
     modal(
-      "我的会馆",
-      `<p class="detail-copy">${esc(profile?.name || user.email)}<br>${profile?.active ? "已入馆" : "等待负责人开通"}</p><button id="signout" class="outline">退出登录</button>`,
+      "我的账号",
+      `<p class="detail-copy">${esc(profile?.name || user.email)}<br>${profile?.active ? "已入馆" : "等待负责人开通"}</p><form id="nickname-form"><label class="field">画师昵称<input name="name" required maxlength="40" value="${esc(profile?.name || "")}"></label><button class="primary">保存昵称</button></form><p class="muted">账号尾号：${esc(user.id.slice(-6))}，供负责人核对。</p><button id="signout" class="outline">退出登录</button>`,
     );
+    $("#nickname-form").onsubmit = async (e) => {
+      e.preventDefault();
+      const b = e.target.querySelector("button");
+      b.disabled = true;
+      try {
+        const r = await client.rpc("guild_set_name", {
+          p_name: new FormData(e.target).get("name").trim(),
+        });
+        if (r.error) throw r.error;
+        await load();
+        $("#dialog").close();
+        toast("昵称已保存，请负责人核对并开通。");
+      } catch (e) {
+        error(e);
+        b.disabled = false;
+      }
+    };
     $("#signout").onclick = async () => {
       await client.auth.signOut();
       $("#dialog").close();
@@ -448,7 +500,7 @@ function account() {
   }
   modal(
     "登录 / 加入会馆",
-    '<p class="muted">使用邮箱验证码登录。新成员需要负责人开通，才能查看和认领委托。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
+    '<p class="muted">使用邮箱验证码登录。新成员需要负责人开通，才能查看和认领任务。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
   );
   $("#login").onsubmit = async (e) => {
     e.preventDefault();
@@ -463,7 +515,7 @@ function account() {
       if (r.error) throw r.error;
       modal(
         "检查邮箱",
-        `<p class="muted">已向 ${esc(email)} 发送登录邮件。可以打开邮件链接，或输入邮件里的验证码。</p><form id="verify"><label class="field">验证码<input name="token" inputmode="numeric" required></label><button class="primary">登录</button></form>`,
+        `<p class="muted">已向 ${esc(email)} 发送登录邮件。请输入邮件里的六位验证码。</p><form id="verify"><label class="field">验证码<input name="token" inputmode="numeric" required></label><button class="primary">登录</button></form>`,
       );
       $("#verify").onsubmit = async (ev) => {
         ev.preventDefault();
@@ -488,19 +540,6 @@ function account() {
     }
   };
 }
-function newTask() {
-  modal(
-    "发布一份新委托",
-    '<form id="create"><label class="field">委托名称<input name="title" required maxlength="80"></label><label class="field">分类<select name="category"><option>角色</option><option>场景</option><option>UI 图标</option><option>卡牌</option><option>像素</option><option>其他</option></select></label><label class="field">要求与交付格式<textarea name="brief" required maxlength="5000" placeholder="画什么、参考在哪里、交什么格式、尺寸多大…"></textarea></label><label class="field">贡献分（发布前约定）<input name="points" type="number" min="1" max="1000" value="30" required></label><label class="field">期望交稿日期（可不填）<input name="due_date" type="date"></label><button class="primary">贴上公告栏</button></form>',
-  );
-  $("#create").onsubmit = (e) => {
-    e.preventDefault();
-    const f = Object.fromEntries(new FormData(e.target));
-    f.points = Number(f.points);
-    f.due_date ||= null;
-    act("create", null, f);
-  };
-}
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-view],[data-filter],[data-task]");
   if (!b) return;
@@ -520,7 +559,7 @@ $("#search").oninput = (e) => {
 };
 $("#close").onclick = () => $("#dialog").close();
 $("#account").onclick = account;
-$("#new-task").onclick = newTask;
+$("#new-task").onclick = () => newTask();
 $("#browse").onclick = () => {
   view = "board";
   filter = "open";
@@ -531,7 +570,7 @@ $("#refresh").onclick = () => load().then(() => toast("已重新读取"));
 $("#settings").onclick = () =>
   modal(
     "会馆连接",
-    `<p class="detail-copy">${demo ? "当前为本地演示。部署时在 config.js 填入 Supabase 项目 URL 和 publishable 公钥，执行数据库脚本后即可切换真实模式。" : "当前连接 Supabase。成员权限、验收与贡献记分由数据库验证。"}</p><p class="muted">作品暂以链接 / 网盘交付。贡献排行仅记录验收通过的委托。同一委托不会重复记分。</p>`,
+    `<p class="detail-copy">${demo ? "当前为本地演示。部署时在 config.js 填入 Supabase 项目 URL 和 publishable 公钥，执行数据库脚本后即可切换真实模式。" : "当前连接 Supabase。成员权限、验收与贡献记分由数据库验证。"}</p><p class="muted">作品暂以链接 / 网盘交付。贡献排行仅记录验收通过的任务。同一任务不会重复记分。</p>`,
   );
 async function init() {
   if (demo) {
@@ -561,19 +600,28 @@ async function init() {
     user = (await client.auth.getSession()).data.session?.user;
     await load();
     client.auth.onAuthStateChange((_event, session) => {
+      const previousUser = user?.id;
       user = session?.user;
       setTimeout(() => {
-        data = { tasks: [], profiles: [], submissions: [], awards: [] };
-        render();
+        if (previousUser !== user?.id) {
+          data = { tasks: [], profiles: [], submissions: [], awards: [] };
+          render();
+        }
         load();
       }, 0);
     });
     channel = client.channel("guild-live");
-    for (const table of ["tasks", "submissions", "awards", "profiles"])
+    for (const table of [
+      "tasks",
+      "submissions",
+      "awards",
+      "profiles",
+      "campaign",
+    ])
       channel.on(
         "postgres_changes",
         { event: "*", schema: "public", table: "guild_" + table },
-        () => load(),
+        () => scheduleLoad(),
       );
     channel.subscribe((status) => {
       $("#connection").textContent =
@@ -600,7 +648,9 @@ function taskLabel(t) {
 function taskArtist(t) {
   return t.assignee
     ? name(t.assignee)
-    : t.source_record?.artist || "未登记画师";
+    : t.status === "imported"
+      ? t.source_record?.artist || "未登记画师"
+      : "未认领";
 }
 function pointLabel(t) {
   return t.points == null ? "贡献分待约定" : `${Number(t.points)} 贡献分`;
@@ -656,12 +706,12 @@ function importDetail(t, admin) {
   if (!admin)
     return (
       html +
-      '<p class="muted">负责人确认贡献分和负责画师后，这份记录会转成可操作的委托。</p>'
+      '<p class="muted">负责人确认贡献分和负责画师后，这份记录会转成可操作的任务。</p>'
     );
   const members = data.profiles.filter((p) => p.active);
   return (
     html +
-    `<form id="activate-import"><h3>确认这份委托</h3><p class="muted">请核对画师本人账号。已交终稿的记录也需要补交作品链接，再走验收。确认旧版卡牌前，请先排除共用美术的情况。</p><label class="field">已约定的贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写与画师约定的分数"></label><label class="field">负责画师的已开通账号<select name="assignee" ${s.artist ? "required" : ""}><option value="">${s.artist ? "请选择原画师账号" : "开放给成员认领"}</option>${members.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">找不到画师时，先请对方登录并由负责人开通账号，不要选同名或他人的账号代替。</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">确认并转为委托</button></form>`
+    `<form id="activate-import"><h3>确认这份任务</h3><p class="muted">请核对画师本人账号。已交终稿的记录也需要补交作品链接，再走验收。确认旧版卡牌前，请先排除共用美术的情况。</p><label class="field">已约定的贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写与画师约定的分数"></label><label class="field">负责画师的已开通账号<select name="assignee" ${s.artist ? "required" : ""}><option value="">${s.artist ? "请选择原画师账号" : "开放给成员认领"}</option>${members.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">找不到画师时，先请对方登录并由负责人开通账号，不要选同名或他人的账号代替。</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">确认并转为任务</button></form>`
   );
 }
 function bindImportForm(t) {
@@ -704,6 +754,365 @@ function bindImportForm(t) {
     } finally {
       busy = false;
       button.disabled = false;
+    }
+  };
+}
+
+// Points describe an agreed deliverable, not drawing skill or a cash exchange rate.
+const SCORE_GUIDE = [
+  {
+    name: "大场景",
+    points: 320,
+    unit: "完整大幅场景：构图、前中后景与细节",
+    brief:
+      "画面用途：\n构图与主要元素：\n参考链接：\n尺寸 / 格式：\n交付：完整色稿及约定源文件。草稿、线稿、上色合计为本任务分值。",
+  },
+  {
+    name: "常规场景",
+    points: 160,
+    unit: "一张完整常规场景",
+    brief:
+      "场景地点与用途：\n需要出现的元素：\n参考链接：\n尺寸 / 格式：\n交付：完整场景稿。",
+  },
+  {
+    name: "小场景 / 物件",
+    points: 60,
+    unit: "一个小场景或独立物件",
+    brief:
+      "场景 / 物件内容：\n参考链接：\n尺寸 / 格式：\n交付：透明底素材及约定源文件。",
+  },
+  {
+    name: "Q版卡牌",
+    points: 40,
+    unit: "一张 Q 版卡面，简单背景或透明底",
+    brief:
+      "卡牌名称与角色：\n动作 / 表情：\n参考链接：\n尺寸 / 格式：\n交付：一张完整 Q 版卡面。复杂背景需另行约定工作量。",
+  },
+  {
+    name: "角色立绘",
+    points: 120,
+    unit: "一张完整角色立绘，不含额外差分",
+    brief:
+      "角色与用途：\n服饰 / 动作：\n参考链接：\n尺寸 / 格式：\n交付：完整立绘及约定源文件。",
+  },
+  {
+    name: "表情 / 动作差分",
+    points: 20,
+    unit: "基于已有立绘的一项差分",
+    brief:
+      "原立绘链接：\n新增差分：\n尺寸 / 格式：\n交付：约定的一项差分，不重复计算原立绘分值。",
+  },
+  {
+    name: "UI 页面设计",
+    points: 160,
+    unit: "一个完整页面及约定交互状态",
+    brief:
+      "页面用途：\n必要信息与操作：\n需要的状态（默认 / 悬停 / 禁用等）：\n参考与尺寸：\n交付：可编辑界面稿及切图。",
+  },
+  {
+    name: "UI 图标",
+    points: 20,
+    unit: "一个图标及约定状态 / 导出尺寸",
+    brief:
+      "图标含义：\n需要的状态与尺寸：\n风格参考：\n交付：可编辑文件及透明 PNG。同一图标多尺寸不重复计分。",
+  },
+  {
+    name: "任务拆分 / 整理",
+    points: 20,
+    unit: "一批不超过 10 项的清晰需求清单",
+    brief:
+      "待整理的原需求：\n本批范围（不超过 10 项）：\n交付：逐项写清产出、参考、负责人需求与验收条件。按一批计分，不按拆出的条数计分。",
+  },
+  {
+    name: "其他",
+    points: null,
+    unit: "负责人先估工作量，再与参与者确认",
+    brief: "要做什么：\n参考资料：\n交付清单：\n验收条件：",
+  },
+];
+let adminFilter = "submitted",
+  refreshTimer;
+function scheduleLoad() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => load(), 180);
+}
+function campaign() {
+  return data.campaign?.[0] || { name: "第一期创作奖励", reward_amount: 100 };
+}
+function beijing(value) {
+  return new Date(value).toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour12: false,
+  });
+}
+function phaseRanking() {
+  const c = campaign();
+  if (!c.starts_at || !c.ends_at) return [];
+  return data.profiles
+    .map((p) => {
+      const awards = data.awards.filter((a) => {
+        const s = data.submissions.find((s) => s.id === a.submission_id);
+        return (
+          a.artist_id === p.id &&
+          s &&
+          Date.parse(s.created_at) >= Date.parse(c.starts_at) &&
+          Date.parse(s.created_at) <= Date.parse(c.ends_at)
+        );
+      });
+      return {
+        ...p,
+        total: awards.reduce((n, a) => n + a.points, 0),
+        count: awards.length,
+      };
+    })
+    .filter((p) => p.total > 0)
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "zh-CN"));
+}
+function rewardHTML() {
+  const c = campaign();
+  return `<p class="eyebrow">一份小小的感谢 ( •̀ ω •́ )✧</p><h3>本期最高贡献奖励 ¥100</h3><p>${c.starts_at && c.ends_at ? `${esc(c.name)}<br>${esc(beijing(c.starts_at))} 至<br>${esc(beijing(c.ends_at))}（北京时间）` : "预计 11 月中下旬截止<br>具体起止时间待公布"}</p><p>本期最高贡献的小画师获得 100 元；并列第一均分这 100 元。额外感谢，不是稿酬或计件单价。</p><p>以统计期内提交、最终验收通过的版本计分。晚验收可补记；修改后按最终通过版本的提交时间判断。名单由负责人核对后公布。</p>`;
+}
+function phaseHTML() {
+  const c = campaign(),
+    rows = phaseRanking();
+  const state = !c.starts_at
+    ? "统计周期待公布"
+    : Date.now() < Date.parse(c.starts_at)
+      ? "尚未开始"
+      : Date.now() <= Date.parse(c.ends_at)
+        ? "本期暂列"
+        : "已截止，待负责人核对";
+  return `<section class="phase-board"><h3>本期贡献 · ${state}</h3><p class="muted">并列第一均分 100 元。暂列成绩不代表最终获奖结果；待验收稿件可能改变排序。</p>${!c.starts_at ? '<p class="muted">时间确定后开始按本期规则统计，累计贡献仍保留。</p>' : rows.length ? people(rows) : '<p class="muted">本期还没有验收通过的贡献。</p>'}</section>`;
+}
+function prepareAdmin() {
+  let button = $("#admin-nav");
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "admin-nav";
+    button.dataset.view = "admin";
+    button.textContent = "▤　负责人工作台";
+    document.querySelector("nav").append(button);
+  }
+  const allowed = profile?.active && profile?.role === "admin";
+  button.hidden = !allowed;
+  if (view === "admin" && !allowed) view = "board";
+  document.body.classList.toggle("admin-mode", view === "admin");
+  let reward = $("#reward-panel");
+  if (!reward) {
+    reward = document.createElement("section");
+    reward.id = "reward-panel";
+    reward.className = "panel guide reward-panel";
+    $(".right-rail").prepend(reward);
+  }
+  reward.innerHTML = rewardHTML();
+  reward.hidden = !profile?.active;
+}
+function scoreGuideHTML() {
+  return `<p class="muted">暂行基准，按完整交付物估工作量，不给画技打分，也不与人民币换算。简单 / 标准 / 复杂分别 ×0.75 / ×1 / ×1.25，取最接近的 5 分；特殊工作量由负责人在发布前另行约定。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>类型</th><th>基准分</th><th>一份任务包含什么</th></tr></thead><tbody>${SCORE_GUIDE.map((s) => `<tr><td>${s.name}</td><td>${s.points ?? "另议"}</td><td>${s.unit}</td></tr>`).join("")}</tbody></table></div><p class="muted">草稿、线稿、上色和合理修改属于同一任务，不重复计分。多人协作拆项时，由负责人将原定总分分给各子项，总和不额外增加。差分和导出尺寸不按完整新稿重复记分。新增需求要先谈清楚，再单独发布；返工次数、抢交速度和画风偏好不加分。</p>`;
+}
+function memberOptions(selected) {
+  return (
+    '<option value="">开放认领</option>' +
+    data.profiles
+      .filter((p) => p.active)
+      .map(
+        (p) =>
+          `<option value="${esc(p.id)}" ${p.id === selected ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`,
+      )
+      .join("")
+  );
+}
+function newTask(task = null) {
+  const choices = SCORE_GUIDE.map((s) => s.name);
+  if (task && !choices.includes(task.category)) choices.push(task.category);
+  const category = task?.category || "Q版卡牌",
+    guide = SCORE_GUIDE.find((s) => s.name === category);
+  modal(
+    task ? "编辑 / 分配任务" : "发布任务",
+    `<form id="task-editor"><label class="field">任务名称<input name="title" required maxlength="80" value="${esc(task?.title || "")}" placeholder="例如：罗小黑 · Q版卡牌 · 遁空"></label><div class="form-grid"><label class="field">稿件分类<select name="category">${choices.map((c) => `<option ${c === category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label><label class="field">复杂度<select name="complexity"><option value="0.75">简单 ×0.75</option><option value="1" selected>标准 ×1</option><option value="1.25">复杂 ×1.25</option></select></label></div><p id="score-hint" class="muted"></p><label class="field">任务要求与验收清单<textarea name="brief" required maxlength="5000">${esc(task?.brief || guide?.brief || "")}</textarea></label><button type="button" id="insert-template" class="text-link">使用当前分类的需求模板（替换上方内容）</button><div class="form-grid"><label class="field">最终贡献分<input name="points" type="number" min="1" max="1000" required value="${task?.points ?? guide?.points ?? ""}"></label><label class="field">任务 DDL（可不填）<input name="due_date" type="date" value="${esc(task?.due_date || "")}"></label></div><label class="field">负责画师<select name="assignee">${memberOptions(task?.assignee)}</select></label><p class="muted">选画师后直接进入创作中；不选则开放认领。接稿前请确认要求和分值，创作开始后分值锁定。任务 DDL 与奖金统计截止时间分别设置。</p><button class="primary">${task ? "保存任务" : "发布任务"}</button></form>`,
+  );
+  const form = $("#task-editor"),
+    cat = form.elements.category,
+    complexity = form.elements.complexity;
+  const suggest = (write = false) => {
+    const s = SCORE_GUIDE.find((s) => s.name === cat.value);
+    const points = s?.points
+      ? Math.round((s.points * Number(complexity.value)) / 5) * 5
+      : null;
+    $("#score-hint").textContent = points
+      ? `建议 ${points} 分 · ${s.unit}。负责人可在发布前调整。`
+      : "请与参与者确认工作范围和分值。";
+    if (write) form.elements.points.value = points ?? "";
+  };
+  suggest();
+  cat.onchange = () => suggest(true);
+  complexity.onchange = () => suggest(true);
+  $("#insert-template").onclick = () => {
+    form.elements.brief.value =
+      SCORE_GUIDE.find((s) => s.name === cat.value)?.brief || "";
+    toast("需求模板已填入，请补齐具体信息。");
+  };
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(form));
+    delete f.complexity;
+    f.points = Number(f.points);
+    f.due_date ||= null;
+    f.assignee ||= null;
+    if (!Number.isInteger(f.points)) return toast("贡献分请填写整数");
+    act(task ? "edit" : "create", task?.id || null, f);
+  };
+}
+function renderAdmin() {
+  const pending = data.profiles.filter((p) => !p.active && p.role === "artist");
+  const filters = [
+    ["submitted", "待验收"],
+    ["imported", "原表待确认"],
+    ["open", "待分配"],
+    ["active", "创作中"],
+    ["changes", "待修改"],
+    ["done", "已完成"],
+  ];
+  const rows = data.tasks
+    .filter(
+      (t) =>
+        t.status === adminFilter &&
+        [t.title, t.category, t.brief, taskArtist(t)]
+          .join(" ")
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+    )
+    .sort(
+      (a, b) =>
+        (a.source_record?.system === "旧版参考") -
+          (b.source_record?.system === "旧版参考") ||
+        (a.source_record?.row || 0) - (b.source_record?.row || 0),
+    );
+  $("#count").textContent = `${pending.length} 位画师待开通`;
+  $("#list").innerHTML =
+    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。原表记录先核对画师与分值；旧版参考先确认是否需要单独绘制。已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => t.status === value).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? "确认记录" : "查看 / 处理"}</button></td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
+  $("#admin-create").onclick = () => newTask();
+  $("#show-score-guide").onclick = () =>
+    modal("暂行任务分值", scoreGuideHTML());
+  $("#manage-members").onclick = manageMembers;
+  $("#campaign-settings").onclick = editCampaign;
+  document.querySelectorAll("[data-admin-filter]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        adminFilter = b.dataset.adminFilter;
+        renderAdmin();
+      }),
+  );
+  $("#admin-search").oninput = (e) => {
+    query = e.target.value;
+    const pos = e.target.selectionStart;
+    renderAdmin();
+    $("#admin-search").focus();
+    $("#admin-search").setSelectionRange(pos, pos);
+  };
+}
+async function adminRPC(name, args, demoAction) {
+  if (!profile?.active || profile.role !== "admin")
+    throw Error("需要负责人权限");
+  if (demo) {
+    demoAction();
+    store();
+    render();
+  } else {
+    const r = await client.rpc(name, args);
+    if (r.error) throw r.error;
+    await load();
+  }
+}
+function manageMembers() {
+  modal(
+    "画师管理",
+    `<p class="muted">请画师先用邮箱验证码登录，并在“我的账号”填写昵称。核对本人后再开通；原表署名不会自动建立账号。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>状态</th><th>操作</th></tr></thead><tbody>${[
+      ...data.profiles,
+    ]
+      .sort(
+        (a, b) =>
+          Number(a.active) - Number(b.active) ||
+          a.name.localeCompare(b.name, "zh-CN"),
+      )
+      .map(
+        (p) =>
+          `<tr><td>${esc(p.name)}<small>${esc(p.id.slice(-6))}</small></td><td>${p.role === "admin" ? "负责人" : p.active ? "已开通" : "待开通"}</td><td>${p.role === "artist" ? `<button class="outline" data-member="${esc(p.id)}">管理</button>` : "—"}</td></tr>`,
+      )
+      .join("")}</tbody></table></div>`,
+  );
+  document
+    .querySelectorAll("[data-member]")
+    .forEach((b) => (b.onclick = () => editMember(b.dataset.member)));
+}
+function editMember(id) {
+  const p = data.profiles.find((p) => p.id === id);
+  if (!p) return;
+  modal(
+    "管理画师",
+    `<form id="member-form"><p class="muted">账号尾号 ${esc(p.id.slice(-6))} · 请核对本人</p><label class="field">画师昵称<input name="name" maxlength="40" required value="${esc(p.name)}"></label><label class="field">成员状态<select name="active"><option value="true" ${p.active ? "selected" : ""}>开通成员功能</option><option value="false" ${!p.active ? "selected" : ""}>待开通 / 停用</option></select></label><p class="muted">开通后可查看团队任务及作品链接。有未完成任务时不能停用。</p><button class="primary">保存</button></form>`,
+  );
+  $("#member-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const b = e.target.querySelector("button");
+    b.disabled = true;
+    const f = new FormData(e.target);
+    try {
+      await adminRPC(
+        "guild_set_member",
+        {
+          p_user: id,
+          p_name: f.get("name").trim(),
+          p_active: f.get("active") === "true",
+        },
+        () => {
+          p.name = f.get("name").trim();
+          p.active = f.get("active") === "true";
+        },
+      );
+      manageMembers();
+      toast("画师资料已更新。");
+    } catch (e) {
+      error(e);
+      b.disabled = false;
+    }
+  };
+}
+function editCampaign() {
+  const c = campaign(),
+    local = (s) =>
+      s ? new Date(Date.parse(s) + 8 * 3600000).toISOString().slice(0, 16) : "";
+  modal(
+    "本期奖励时间",
+    `<form id="campaign-form"><label class="field">阶段名称<input name="name" maxlength="60" required value="${esc(c.name)}"></label><label class="field">统计开始（北京时间）<input name="start" type="datetime-local" required value="${local(c.starts_at)}"></label><label class="field">统计截止（北京时间）<input name="end" type="datetime-local" required value="${local(c.ends_at)}"></label><p class="muted">奖金总额 100 元，并列第一均分。预计 11 月中下旬截止，时间确定后再保存。已公示时间如需调整，请先与参与者沟通；最终通过版本须在统计期内提交。</p><button class="primary">保存并公布时间</button></form>`,
+  );
+  $("#campaign-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const b = e.target.querySelector("button");
+    b.disabled = true;
+    try {
+      const f = new FormData(e.target),
+        start = new Date(f.get("start") + ":00+08:00").toISOString(),
+        end = new Date(f.get("end") + ":00+08:00").toISOString();
+      if (end <= start) throw Error("截止时间必须晚于开始时间");
+      await adminRPC(
+        "guild_set_campaign",
+        { p_name: f.get("name").trim(), p_start: start, p_end: end },
+        () =>
+          (data.campaign = [
+            {
+              ...c,
+              name: f.get("name").trim(),
+              starts_at: start,
+              ends_at: end,
+            },
+          ]),
+      );
+      $("#dialog").close();
+      toast("本期时间已公布。");
+    } catch (e) {
+      error(e);
+      b.disabled = false;
     }
   };
 }
