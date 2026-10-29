@@ -1172,3 +1172,18 @@ textarea {
 .tour-tip[data-side="top"] .tour-arrow { bottom: -6px; left: calc(var(--arrow-x) - 5px); position: absolute; border-right: 1px solid #b6bea5; border-bottom: 1px solid #b6bea5; }
 
 .tour-tip > p:not(.tour-error) { max-height: 30dvh; overflow: auto; }
+
+.campaign-announcement { margin: 20px 0 28px; padding: 24px 28px; background: #fff7df; border: 1px solid #d7bd7c; border-left: 5px solid #b29154; border-radius: 14px; }
+.announcement-label { color: #80602a; font-size: 13px; font-weight: 600; }
+.campaign-announcement h2 { font-size: 22px; line-height: 1.5; margin: 10px 0 12px; }
+.campaign-announcement p { font-size: 14px; line-height: 1.8; margin: 10px 0; }
+.announcement-reward { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 12px 0; border-top: 1px solid #dfcda0; }
+.announcement-reward strong { color: #8b612d; font-size: 23px; }
+.announcement-reward span { font-size: 13px; line-height: 1.7; }
+.campaign-announcement .announcement-note { color: #59634d; }
+@media (max-width: 760px) {
+  .campaign-announcement { margin: 14px 0 22px; padding: 18px 16px; }
+  .campaign-announcement h2 { font-size: 21px; }
+  .campaign-announcement p { font-size: 15px; }
+  .campaign-announcement .outline { width: 100%; font-size: 13px; padding: 12px 8px; }
+}
