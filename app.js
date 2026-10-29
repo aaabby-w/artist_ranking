@@ -72,9 +72,12 @@ function showTour(step) {
     Object.assign(ring.style, {left: `${r.left - 4}px`, top: `${r.top - 4}px`, width: `${r.width + 8}px`, height: `${r.height + 8}px`});
   };
   const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(position); };
+  const observer = new ResizeObserver(schedule);
+  observer.observe(target); observer.observe(panel);
   const keydown = (e) => { if(e.key === 'Escape') { e.preventDefault(); tourCleanup?.(); } };
   tourCleanup = (restore = true) => {
     cancelAnimationFrame(frame);
+    observer.disconnect();
     window.removeEventListener('resize', schedule);
     window.removeEventListener('scroll', schedule, true);
     document.removeEventListener('keydown', keydown);
