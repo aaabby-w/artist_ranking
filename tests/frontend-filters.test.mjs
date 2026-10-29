@@ -95,6 +95,31 @@ console.log("  ✓ 有贡献分记录的任务不显示删除按钮");
 T.set({ user: { id: "u1" }, profile: null, view: "admin", filter: "all", adminFilter: "open", data: { ...base, tasks } });
 assert.equal(T.canDeleteTask(tasks[9]), false); console.log("  ✓ 画师账号不能删除");
 
+// Gallery (稿件展示)
+const upload = "https://x.supabase.co/storage/v1/object/authenticated/guild-submissions/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000008/00000000-0000-4000-8000-000000000009.png";
+const gallerySubs = [{ id: "s8", task_id: "8", author_id: "u1", url: upload, note: "", feedback: "", created_at: "2026-10-29T10:00:00Z" }];
+T.set({ user: { id: "u1" }, profile: null, view: "gallery", filter: "all", data: { ...base, tasks, submissions: gallerySubs } });
+T.render();
+const wall = el("#list").innerHTML;
+assert.equal(el("#count").textContent, "3 份稿件");
+assert.deepEqual([...wall.matchAll(/class="work (\w+)" data-task="(\d+)"/g)].map((m) => m[1] + ":" + m[2]), ["done:9", "submitted:8", "sheet:3"]);
+assert.match(wall, /data-work-path="00000000-0000-4000-8000-000000000001\/00000000-0000-4000-8000-000000000008\/00000000-0000-4000-8000-000000000009\.png"/);
+assert.match(wall, /终稿在金山表/); assert.match(wall, /画师丙/); assert.match(wall, /画师乙/); noSheetWord(wall);
+console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组；上传图片走私有签名链接");
+T.set({ user: undefined, profile: null, view: "gallery", filter: "all", data: { ...base, profiles: [], submissions: [], tasks: guestRows } });
+T.render();
+const guestWall = el("#list").innerHTML;
+assert.equal(el("#count").textContent, "3 份稿件");
+assert.doesNotMatch(guestWall, /画师甲|画师乙|画师丙|data-work-path/); assert.match(guestWall, /登录后可以看到画师和作品原图/);
+console.log("  ✓ 游客能看到稿件展示，但看不到画师名和作品图");
+T.set({ user: { id: "u1" }, profile: null, view: "gallery", filter: "all", data: { ...base, tasks: tasks.filter((t) => !["3", "8", "9"].includes(t.id)) } });
+T.render();
+assert.match(el("#list").innerHTML, /还没有交上来的稿件/);
+console.log("  ✓ 没有稿件时显示空状态");
+const reward = vm.runInContext(`rewardHTML()`, ctx);
+assert.doesNotMatch(reward, /稿酬|计件|额外感谢|统计期内提交/); assert.match(reward, /DDL/);
+console.log("  ✓ 奖励文案精简，不再出现“额外感谢，不是稿酬或计件单价”");
+
 // Admin with a blocked bulk removal
 T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all",
   data: { ...base, tasks, sync: { state: { last_success_at: new Date(Date.now() - 3600e3).toISOString(), approved_removals: null }, run: { status: "failed", error_code: "MASS_REMOVAL_BLOCKED_70" } } } });

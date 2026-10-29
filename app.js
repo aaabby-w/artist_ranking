@@ -250,21 +250,27 @@ function render() {
     admin: "负责人工作台",
     board: "任务公告栏",
     mine: "我的画桌",
+    gallery: "稿件展示",
     rank: "贡献芳名录",
   }[view];
   $("#section-title").textContent = {
     admin: "发任务、分画师、看交稿。",
     board: "今天，想画点什么？",
     mine: "给每一份灵感，留一点时间。",
+    gallery: "交上来的每一张，都在这里。",
     rank: "每一笔，都算数。",
   }[view];
   $("#section-label").textContent =
-    view === "rank" ? "THANK YOU FOR CREATING" : "TAKE A LITTLE QUEST";
-  $("#toolbar").hidden = view === "rank" || view === "admin";
+    view === "rank" ? "THANK YOU FOR CREATING" : view === "gallery" ? "THE WALL OF WORKS" : "TAKE A LITTLE QUEST";
+  $("#toolbar").hidden = view === "rank" || view === "admin" || view === "gallery";
   updateTaskFilters();
   renderImportSummary();
   if (view === "admin") {
     renderAdmin();
+    return;
+  }
+  if (view === "gallery") {
+    renderGallery();
     return;
   }
   if (view === "rank") {
@@ -276,7 +282,7 @@ function render() {
     $("#list").innerHTML =
       '<div class="rank-list">' +
       phaseHTML() +
-      '<h3>累计贡献</h3><p class="muted">同分并列，昵称仅用于展示排序 · 仅记录已验收任务</p>' +
+      '<h3>累计贡献</h3><p class="muted">同分并列 · 只算验收通过的稿件</p>' +
       people(ranking()) +
       historySummary() +
       "</div>";
@@ -933,14 +939,14 @@ function historySummary() {
   }
   if (!artists.size) return "";
   return (
-    '<h3>原表交稿记录</h3><p class="muted">这是导入时的登记快照，不是验收排名，不计入贡献分。新交稿请看平台记录。</p>' +
+    '<h3>金山表交稿登记</h3><p class="muted">只是登记，不算贡献分～</p>' +
     [...artists.values()]
       .sort(
         (a, b) => b.finals - a.finals || a.name.localeCompare(b.name, "zh-CN"),
       )
       .map(
         (a) =>
-          `<div class="person"><span class="avatar">${esc(a.name.slice(0, 1))}</span><div class="name">${esc(a.name)}<small>原表登记 ${a.count} 条</small></div><strong>${a.finals}<small>已递交终稿</small></strong></div>`,
+          `<div class="person"><span class="avatar">${esc(a.name.slice(0, 1))}</span><div class="name">${esc(a.name)}<small>登记 ${a.count} 张</small></div><strong>${a.finals}<small>已递交终稿</small></strong></div>`,
       )
       .join("")
   );
@@ -1122,19 +1128,19 @@ function phaseRanking() {
 }
 function rewardHTML() {
   const c = campaign();
-  return `<p class="eyebrow">一份小小的感谢 ( •̀ ω •́ )✧</p><h3>本期最高贡献奖励 ¥100</h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "预计 11 月中下旬截止<br>具体起止时间待公布"}</p><p>本期最高贡献的小画师获得 100 元；并列第一均分这 100 元。额外感谢，不是稿酬或计件单价。</p><p>以统计期内提交、最终验收通过的版本计分。晚验收可补记；修改后按最终通过版本的提交时间判断。名单由负责人核对后公布。</p>`;
+  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p><h3>本期最高贡献奖励 ¥100</h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL 还在定～"}</p><p>这期贡献最多的小画师拿走 100 元，并列就一起分～</p><p>DDL 前交的稿，验收通过都算数。</p>`;
 }
 function phaseHTML() {
   const c = campaign(),
     rows = phaseRanking();
   const state = !c.starts_at
-    ? "统计周期待公布"
+    ? "时间待定"
     : Date.now() < Date.parse(c.starts_at)
       ? "尚未开始"
       : Date.now() <= Date.parse(c.ends_at)
         ? "本期暂列"
-        : "已截止，待负责人核对";
-  return `<section class="phase-board"><h3>本期贡献 · ${state}</h3><p class="muted">并列第一均分 100 元。暂列成绩不代表最终获奖结果；待验收稿件可能改变排序。</p>${!c.starts_at ? '<p class="muted">时间确定后开始按本期规则统计，累计贡献仍保留。</p>' : rows.length ? people(rows) : '<p class="muted">本期还没有验收通过的贡献。</p>'}</section>`;
+        : "已截止，核对中";
+  return `<section class="phase-board"><h3>本期贡献 · ${state}</h3><p class="muted">排名还会变，最后以负责人核对为准～</p>${!c.starts_at ? '<p class="muted">时间定下来就开始统计～</p>' : rows.length ? people(rows) : '<p class="muted">还没有验收通过的稿件，第一名虚位以待～</p>'}</section>`;
 }
 function prepareAdmin() {
   let button = $("#admin-nav");
@@ -1214,6 +1220,79 @@ function newTask(task = null) {
     if (!Number.isInteger(f.points)) return toast("贡献分请填写整数");
     act(task ? "edit" : "create", task?.id || null, f);
   };
+}
+// 稿件展示：已交稿（待验收）和已完成的作品，加上金山表里登记了终稿的卡。
+// 作品图片在私有存储桶里，只给登录成员签发临时链接；游客只看到标题。
+let galleryFilter = "all";
+const signedWorks = new Map();
+function galleryItems() {
+  const items = [];
+  for (const t of data.tasks) {
+    if (t.status === "done" || t.status === "submitted") {
+      const subs = data.submissions
+        .filter((s) => s.task_id === t.id)
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      const award = data.awards.find((a) => a.task_id === t.id);
+      const sub = (award && subs.find((s) => s.id === award.submission_id)) || subs[0] || null;
+      items.push({ t, sub, kind: t.status, at: sub?.created_at || t.updated_at || t.created_at });
+    } else if (t.status === "imported" && sourceState(t) === "final") {
+      items.push({ t, sub: null, kind: "sheet", at: t.updated_at || t.created_at });
+    }
+  }
+  const order = { done: 0, submitted: 1, sheet: 2 };
+  return items.sort((a, b) => order[a.kind] - order[b.kind] || Date.parse(b.at) - Date.parse(a.at));
+}
+function workTile({ t, sub, kind }) {
+  const guest = !demo && !user;
+  const path = sub && uploadedImagePath(sub.url);
+  const badge = { done: "已完成", submitted: "待验收", sheet: "已交终稿" }[kind];
+  const artist = guest ? "" : t.assignee ? name(t.assignee) : t.source_record?.artist || "";
+  const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
+  const art = path
+    ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}" loading="lazy" onerror="this.parentNode.classList.add('broken')">`
+    : sub
+      ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
+      : `<div class="work-ph"><b>${esc(t.title)}</b>${scene ? `<small>${esc(scene)}</small>` : ""}<em>${kind === "sheet" ? "终稿在金山表" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
+  const when = sub ? new Date(sub.created_at).toLocaleDateString("zh-CN") : "";
+  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info"><h3>${esc(t.title)}</h3><p>${esc(artist || t.category)}${when ? ` · ${esc(when)}` : ""}</p></div></button>`;
+}
+function renderGallery() {
+  const all = galleryItems();
+  const groups = [["all", "全部"], ["done", "已完成"], ["submitted", "待验收"], ["sheet", "已交终稿"]];
+  if (galleryFilter !== "all" && !all.some((i) => i.kind === galleryFilter)) galleryFilter = "all";
+  const shown = all.filter((i) => galleryFilter === "all" || i.kind === galleryFilter);
+  $("#count").textContent = `${all.length} 份稿件`;
+  $("#list").innerHTML = `<div class="gallery"><div class="gallery-filters">${groups
+    .map(([k, label]) => {
+      const n = k === "all" ? all.length : all.filter((i) => i.kind === k).length;
+      return k === "all" || n ? `<button data-gallery-filter="${k}" class="${galleryFilter === k ? "selected" : ""}">${label}<span>${n}</span></button>` : "";
+    })
+    .join("")}</div>${shown.length ? `<div class="work-grid">${shown.map(workTile).join("")}</div>` : '<div class="empty">还没有交上来的稿件～<br>第一张会挂在这里。</div>'}${!demo && !user ? '<p class="muted gallery-note">登录后可以看到画师和作品原图 ✧</p>' : ""}</div>`;
+  document.querySelectorAll("[data-gallery-filter]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        galleryFilter = b.dataset.galleryFilter;
+        renderGallery();
+      }),
+  );
+  void loadWorkImages();
+}
+async function loadWorkImages() {
+  const imgs = [...document.querySelectorAll("img[data-work-path]")];
+  if (demo || !user || !imgs.length) return;
+  const now = Date.now();
+  const need = [...new Set(imgs.map((i) => i.dataset.workPath))].filter((p) => !(signedWorks.get(p)?.exp > now));
+  if (need.length) {
+    const { data: signed, error: signError } = await client.storage.from(UPLOAD_BUCKET).createSignedUrls(need, 3600);
+    if (!signError)
+      for (const s of signed || []) if (s.signedUrl) signedWorks.set(s.path, { url: s.signedUrl, exp: now + 50 * 60 * 1000 });
+  }
+  for (const img of imgs) {
+    const c = signedWorks.get(img.dataset.workPath);
+    if (!img.isConnected) continue;
+    if (c) img.src = c.url;
+    else img.parentNode.classList.add("broken");
+  }
 }
 function renderAdmin() {
   const pending = data.profiles.filter((p) => !p.active && p.role === "artist");
