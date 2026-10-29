@@ -1198,3 +1198,10 @@ h1, .section-head h2, .campaign-announcement h2, .brand b, .seal, .work-seal, .t
 body { font-weight: 400; }
 input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 .detail-copy, .submission p { line-height: 1.85; }
+
+.campaign-announcement { position: relative; }
+.announcement-controls { float: right; display: flex; align-items: center; gap: 8px; margin: -6px -6px 8px 12px; }
+.announcement-controls button { min-width: 40px; min-height: 40px; border: 1px solid #d7bd7c; border-radius: 10px; background: #fffdf4; font-size: 13px; }
+#announcement-close { font-size: 23px; }
+.campaign-announcement[hidden], #announcement-body[hidden] { display: none; }
+.campaign-announcement h2 { clear: both; }
