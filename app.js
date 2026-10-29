@@ -204,7 +204,7 @@ function matchesTaskSearch(t) {
 function updateTaskFilters() {
   if (view !== "board" && view !== "mine") return;
   const candidates = data.tasks.filter(
-    (t) => (view !== "mine" || t.assignee === user?.id) && matchesTaskSearch(t),
+    (t) => (view !== "mine" || belongsToMe(t)) && matchesTaskSearch(t),
   );
   const definitions = [
     ["all", "全部记录"],
@@ -320,7 +320,7 @@ function render() {
   }
   const tasks = data.tasks.filter(
     (t) =>
-      (view !== "mine" || t.assignee === user?.id) &&
+      (view !== "mine" || belongsToMe(t)) &&
       matchesTaskFilter(t, filter) &&
       matchesTaskSearch(t),
   );
@@ -404,6 +404,9 @@ async function load() {
     ]);
     if (n !== seq) return;
     data.sync = { state: state.data || null, run: run.data || null };
+    const aliases = await client.from("guild_artist_aliases").select("artist_name,artist_id");
+    if(n !== seq) return;
+    data.aliases = aliases.data || [];
     void refreshInbox();
     $("#connection").textContent = "● 已连接";
     render();
@@ -1440,17 +1443,18 @@ async function unpublishTask(id) {
 }
 // 还没注册的画师：任务先挂在表格名字下，注册后由负责人一键绑定账号（该名字下的任务全部跟过去）。
 function artistBindHTML(t, admin) {
-  if (!t.artist_name) return "";
+  const sheetArtist = t.artist_name || (t.status === "imported" && !t.source_removed_at ? t.source_record?.artist : null);
+  if (!sheetArtist) return "";
   const members = data.profiles.filter((p) => p.active);
-  const sameName = members.find((p) => p.name.trim() === t.artist_name.trim());
-  return `<div class="submission"><b>${esc(t.artist_name)} 还没注册</b><p class="muted">${t.status === "submitted" ? "稿件已在待验收；绑定账号后才能通过并记分。" : "可以先帮 ta 交稿；绑定账号后贡献分才有地方记。"}</p>${admin ? `<div class="bind-row"><select id="bind-user"><option value="">选择 ta 注册后的账号</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}</option>`).join("")}</select><button class="primary" id="bind-artist">绑定账号</button>${["active", "changes"].includes(t.status) ? '<button class="outline" id="release-name">改回待认领</button>' : ""}</div>` : ""}</div>`;
+  const sameName = members.find((p) => p.name.trim() === sheetArtist.trim());
+  return `<div class="submission"><b>${esc(sheetArtist)}  · 账号关联</b><p class="muted">${t.status === "submitted" ? "核对本人后连接账号，名下任务和暂存贡献将归入该账号。" : "核对一次署名，之后新任务可沿用关联；尚未发布的卡牌仍需负责人确认要求。"}</p>${admin ? `<div class="bind-row"><select id="bind-user"><option value="">选择 ta 注册后的账号</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}</option>`).join("")}</select><button class="primary" id="bind-artist">绑定账号</button>${["active", "changes"].includes(t.status) ? '<button class="outline" id="release-name">改回待认领</button>' : ""}</div>` : ""}</div>`;
 }
 function bindArtistActions(t) {
   $("#bind-artist")?.addEventListener("click", async () => {
     const userId = $("#bind-user").value;
     if (!userId) return toast("先选一个账号～");
     try {
-      const nameOnSheet = t.artist_name;
+      const nameOnSheet = t.artist_name || t.source_record?.artist;
       await adminRPC("guild_bind_artist", { p_name: nameOnSheet, p_user: userId }, () => {
         for (const x of data.tasks) if (x.artist_name === nameOnSheet && !x.assignee) Object.assign(x, { assignee: userId, artist_name: null });
       });
@@ -1481,7 +1485,6 @@ async function deleteTask(id) {
   const t = data.tasks.find((x) => x.id === id);
   if (!t || !canDeleteTask(t)) return toast("这份任务不能删除，请刷新后再试");
   const subs = data.submissions.filter((s) => s.task_id === id);
-  const historical = admin && (["submitted", "done"].includes(t.status) || (t.status === "imported" && sourceState(t) === "final" && !t.source_removed_at));
   const images = subs.map((s) => uploadedImagePath(s.url)).filter(Boolean);
   if (!confirm(`确定删除「${t.title}」吗？${subs.length ? `\n它的 ${subs.length} 条交稿记录${images.length ? `和 ${images.length} 张上传图片` : ""}也会一起删除。` : ""}\n删除后无法恢复。`)) return;
   try {
@@ -1605,5 +1608,8 @@ function editCampaign() {
     }
   };
 }
+
+
+function belongsToMe(t) { return !!user && (t.assignee === user.id || (t.status === "imported" && !t.source_removed_at && (data.aliases || []).some(a=>a.artist_id===user.id && a.artist_name===String(t.source_record?.artist || "").trim()))); }
 
 init();
