@@ -339,6 +339,34 @@ psql(`select guild_delete_task('${T.claw}');`, { ...asArtist, expectError: "只�
 assert.equal(one(`select count(*) from guild_awards where task_id='${doneTask}';`), "1");
 ok("已完成并记分的任务、金山表的卡依旧不能删；画师不能删；贡献分记录保留");
 
+// ---------------------------------------------------------------- 010 defaults
+console.log("场景：010 默认 20 分 / 11-15");
+const before010 = one(`select count(*) from guild_awards;`);
+psql(file("supabase/010_card_default_points_due.sql"));
+assert.equal(one(`select count(*) from guild_tasks where kdocs_card_id is not null and assignee is null and status in ('imported','open') and (points,due_date) is distinct from (20,'2026-11-15'::date);`), "0");
+assert.equal(one(`select points||'/'||coalesce(due_date::text,'-') from guild_tasks where id='${T.guard}';`), "30/-");
+assert.equal(one(`select points from guild_tasks where id='${T.legacy03}';`), "25");
+assert.equal(one(`select count(*) from guild_awards;`), before010);
+ok("未发布和已发布未认领的卡都改为 20 分、2026-11-15；已认领/已完成任务的分值和日期不变；奖励不变");
+assert.equal(one(`select points||'/'||due_date from guild_task_preview where id='${tid("devour")}';`, { role: "anon" }), "20/2026-11-15");
+ok("游客预览同步显示 20 分和 DDL");
+const devourId = tid("devour");
+psql(`update guild_tasks set points=35, due_date='2026-11-20' where id='${devourId}';`);
+const edited10 = [...edited, fresh]; const dv = edited10.find((c) => c.id === "devour"); const dvOld = dv.desc; dv.desc = "新的描述。";
+r = sync(sheet(edited10)); assert.equal(r.tasks_updated, 1);
+assert.equal(one(`select points||'/'||due_date from guild_tasks where id='${devourId}';`), "35/2026-11-20");
+ok("同步更新卡牌说明时不覆盖负责人改过的分值和 DDL");
+dv.desc = dvOld; sync(sheet(edited10));
+r = sync(sheet([...edited10, { ...fresh, id: "new-test-2", name: "测试新卡二" }]));
+assert.equal(r.tasks_inserted, 1);
+assert.equal(one(`select status||'/'||points||'/'||due_date from guild_tasks where kdocs_card_id='new-test-2';`), "imported/20/2026-11-15");
+ok("新同步进来的卡自动带默认 20 分和 DDL");
+psql(`select guild_activate_import('${tid("shadow")}',20,null);`, asA);
+assert.equal(one(`select status||'/'||points||'/'||due_date from guild_tasks where id='${tid("shadow")}';`), "open/20/2026-11-15");
+ok("负责人定分发布后成为待认领任务，DDL 保留");
+psql(`insert into guild_tasks(title,category,brief,status,import_key,source_record,points,assignee) values('x','c','b','imported','k-x','{}',20,'${ARTIST}');`, { expectError: "guild_tasks_score_ready" });
+ok("未发布的卡仍不能绑定画师（约束保留）");
+
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
 psql(`insert into vault.secrets(name, secret) values('kdocs_sync_trigger', repeat('x',40));`);
