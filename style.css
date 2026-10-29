@@ -376,6 +376,11 @@ h2 {
 .tag.done {
   background: #dbe7d5;
 }
+.tag.warn {
+  background: #f3dccf;
+  color: #8a4b2c;
+  margin-left: 4px;
+}
 .card h3 {
   font-size: 16px;
   font-weight: 600;
