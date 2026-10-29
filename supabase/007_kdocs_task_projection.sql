@@ -75,6 +75,7 @@ begin
   end if;
   return new;
 end $$;
+revoke all on function public.guild_kdocs_guard_activation() from public,anon,authenticated;
 drop trigger if exists guild_kdocs_guard_activation on public.guild_tasks;
 create trigger guild_kdocs_guard_activation before update of status on public.guild_tasks
   for each row execute function public.guild_kdocs_guard_activation();
