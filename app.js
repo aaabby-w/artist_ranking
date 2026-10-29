@@ -144,6 +144,61 @@ function people(rows) {
       .join("") || '<p class="muted">第一份完成的任务，将在这里留下名字。</p>'
   );
 }
+// 原表只是历史登记，不是平台正式工单；筛选时区分两套进度。
+function matchesTaskFilter(t, selected) {
+  if (selected === "all") return true;
+  if (selected === "imported") return t.status === "imported";
+  if (selected === "import-final")
+    return t.status === "imported" && t.source_record?.status === "已递交终稿";
+  if (selected === "import-assigned")
+    return t.status === "imported" &&
+      t.source_record?.status !== "已递交终稿" &&
+      !!String(t.source_record?.artist || "").trim();
+  if (selected === "import-unassigned")
+    return t.status === "imported" &&
+      t.source_record?.status !== "已递交终稿" &&
+      !String(t.source_record?.artist || "").trim();
+  if (selected === "active") return t.status === "active" || t.status === "changes";
+  return t.status === selected;
+}
+function matchesTaskSearch(t) {
+  return [t.title, t.category, t.brief, t.source_record?.artist, t.source_record?.card_id]
+    .join(" ")
+    .toLowerCase()
+    .includes(query.toLowerCase());
+}
+function updateTaskFilters() {
+  if (view !== "board" && view !== "mine") return;
+  const candidates = data.tasks.filter(
+    (t) => (view !== "mine" || t.assignee === user?.id) && matchesTaskSearch(t),
+  );
+  const signedIn = demo || !!user;
+  const definitions = [
+    ["all", "全部记录"],
+    ...(view === "board" ? [["open", "可认领"]] : []),
+    ...(signedIn && view === "board"
+      ? [
+          ["import-unassigned", "原表未登记画师"],
+          ["import-assigned", "原表已登记画师"],
+          ["import-final", "原表已交终稿"],
+        ]
+      : view === "board" ? [["imported", "原表登记"]] : []),
+    ["active", "创作中"],
+    ["submitted", "平台待验收"],
+    ["done", "平台已完成"],
+  ];
+  const options = definitions
+    .map(([id, label]) => ({
+      id,
+      label,
+      count: candidates.filter((t) => matchesTaskFilter(t, id)).length,
+    }))
+    .filter((o) => o.id === "all" || o.id === filter || o.id === "open" || o.count > 0);
+  document.querySelector(".filters").innerHTML = options
+    .map((o) => `<button data-filter="${o.id}" class="${filter === o.id ? "selected" : ""}">${o.label} ${o.count}</button>`)
+    .join("");
+}
+
 function render() {
   profile = data.profiles.find((p) => p.id === user?.id);
   if (!demo && !user && view === "mine") view = "board";
@@ -207,11 +262,7 @@ function render() {
   $("#section-label").textContent =
     view === "rank" ? "THANK YOU FOR CREATING" : "TAKE A LITTLE QUEST";
   $("#toolbar").hidden = view === "rank" || view === "admin";
-  document
-    .querySelectorAll("[data-filter]")
-    .forEach((b) =>
-      b.classList.toggle("selected", b.dataset.filter === filter),
-    );
+  updateTaskFilters();
   renderImportSummary();
   if (view === "admin") {
     renderAdmin();
@@ -236,13 +287,8 @@ function render() {
   const tasks = data.tasks.filter(
     (t) =>
       (view !== "mine" || t.assignee === user?.id) &&
-      (filter === "all" ||
-        t.status === filter ||
-        (filter === "active" && t.status === "changes")) &&
-      [t.title, t.category, t.brief, t.source_record?.artist]
-        .join(" ")
-        .toLowerCase()
-        .includes(query.toLowerCase()),
+      matchesTaskFilter(t, filter) &&
+      matchesTaskSearch(t),
   );
   tasks.sort((a, b) => {
     if (a.source_record && b.source_record)
@@ -253,7 +299,7 @@ function render() {
       );
     return Date.parse(b.created_at) - Date.parse(a.created_at);
   });
-  $("#count").textContent = tasks.length + " 份任务";
+  $("#count").textContent = tasks.length + " 条记录";
   $("#list").innerHTML =
     tasks
       .map(
@@ -807,12 +853,6 @@ function renderImportSummary() {
     pending = rows.filter((t) => t.status === "imported").length;
   box.hidden = !rows.length;
   box.textContent = `原表 ${rows.length} 条记录 · ${rows.filter((t) => t.source_record?.artist).length} 条登记了画师 · ${rows.filter((t) => t.source_record?.status === "已递交终稿").length} 条已递交终稿 · ${pending} 条待负责人确认。原表交稿不等于平台验收，旧版参考需先确认是否共用美术。`;
-  if (!document.querySelector('[data-filter="imported"]')) {
-    const b = document.createElement("button");
-    b.dataset.filter = "imported";
-    b.textContent = "原表登记";
-    document.querySelector(".filters").append(b);
-  }
 }
 function historySummary() {
   const artists = new Map();
