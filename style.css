@@ -759,11 +759,74 @@ textarea {
   #list {
     grid-template-columns: 1fr;
   }
+  /* 手机任务列表：两列瀑布流（小红书式），列由 app.js waterfall() 分配 */
+  .waterfall {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+  .wf-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
   .right-rail {
     grid-template-columns: 1fr;
   }
   .card {
     min-height: 205px;
+  }
+  .wf-col > .card {
+    min-height: 0;
+    padding: 13px 12px 12px;
+    border-radius: 9px;
+    box-shadow: 0 2px 0 #dde2d0;
+  }
+  .wf-col > .card:hover {
+    transform: none;
+  }
+  .wf-col > .card .card-top {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+  .wf-col > .card .tag {
+    font-size: 9px;
+    padding: 3px 6px;
+  }
+  .wf-col > .card .tag.warn {
+    margin-left: 0;
+  }
+  .wf-col > .card h3 {
+    font-size: 14px;
+    line-height: 1.45;
+    margin: 11px 0 6px;
+    overflow-wrap: anywhere;
+  }
+  .wf-col > .card p {
+    font-size: 11px;
+    line-height: 1.7;
+    -webkit-line-clamp: 6;
+    overflow-wrap: anywhere;
+  }
+  .wf-col > .card .meta {
+    font-size: 9px;
+    margin: 8px 0 9px;
+  }
+  .wf-col > .card .card-bottom {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    font-size: 10px;
+    padding-top: 9px;
+  }
+  .wf-col > .card .card-bottom span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
   }
   .hero-actions button {
     font-size: 11px;

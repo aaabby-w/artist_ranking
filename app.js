@@ -419,14 +419,28 @@ function render() {
     return Date.parse(b.created_at) - Date.parse(a.created_at);
   });
   $("#count").textContent = tasks.length + " 条记录";
+  const cards = tasks.map(
+    (t) =>
+      `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span>${syncBadge(t)}</div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "DDL（截止日期） 未设 · 可与负责人协商"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
+  );
   $("#list").innerHTML =
-    tasks
-      .map(
-        (t) =>
-          `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span>${syncBadge(t)}</div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "DDL（截止日期） 未设 · 可与负责人协商"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
-      )
-      .join("") ||
+    (MOBILE.matches ? waterfall(cards, tasks) : cards.join("")) ||
     '<div class="empty">这里暂时没有任务。<br>可以换个筛选，或去公告栏认领喜欢的任务。</div>';
+}
+// 手机端两列瀑布流（小红书式）：按顺序把每张卡放进当前较矮的一列，阅读顺序仍是从上到下。
+const MOBILE = globalThis.matchMedia?.("(max-width: 760px)") || { matches: false };
+MOBILE.addEventListener?.("change", () => render());
+function waterfall(cards, tasks) {
+  if (!cards.length) return "";
+  const cols = [[], []],
+    h = [0, 0];
+  cards.forEach((html, i) => {
+    const t = tasks[i],
+      c = h[0] <= h[1] ? 0 : 1;
+    cols[c].push(html);
+    h[c] += 9 + Math.ceil(String(t.title || "").length / 9) + Math.min(6, Math.ceil(String(t.brief || "").length / 13));
+  });
+  return `<div class="waterfall">${cols.map((c) => `<div class="wf-col">${c.join("")}</div>`).join("")}</div>`;
 }
 function modal(title, body) {
   $("#dialog-title").textContent = title;
