@@ -62,7 +62,8 @@ console.log("  ✓ 顶部统计与合并后的列表一致；摘要条不再列�
 // Guest view: preview rows carry source_state only (no names, no source_record)
 const guestRows = tasks.filter((t) => !(t.status === "imported" && t.source_removed_at))
   .map(({ id, title, category, brief, points, status, due_date, created_at }) => ({ id, title, category, brief, points, status, due_date, created_at,
-    source_state: status !== "imported" ? null : ({ 1: "unassigned", 2: "assigned", 3: "final" })[id] }));
+    source_state: status !== "imported" ? null : ({ 1: "unassigned", 2: "assigned", 3: "final" })[id],
+    artist_credit: { 3: "画师乙", 8: "画师丙", 9: "画师丙" }[id] || null }));
 T.set({ user: undefined, profile: null, view: "board", filter: "all", data: { ...base, profiles: [], tasks: guestRows } });
 T.render();
 assert.deepEqual(counts(), { 全部记录: 9, 待认领: 3, 创作中: 2, 待验收: 2, 待修改: 1, 已完成: 1 });
@@ -104,14 +105,16 @@ const wall = el("#list").innerHTML;
 assert.equal(el("#count").textContent, "3 份稿件");
 assert.deepEqual([...wall.matchAll(/class="work (\w+)" data-task="(\d+)"/g)].map((m) => m[1] + ":" + m[2]), ["done:9", "submitted:8", "sheet:3"]);
 assert.match(wall, /data-work-path="00000000-0000-4000-8000-000000000001\/00000000-0000-4000-8000-000000000008\/00000000-0000-4000-8000-000000000009\.png"/);
-assert.match(wall, /终稿在金山表/); assert.match(wall, /画师丙/); assert.match(wall, /画师乙/); noSheetWord(wall);
-console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组；上传图片走私有签名链接");
+assert.match(wall, /终稿在金山表/); assert.match(wall, /✎ 画师丙 老师/); assert.match(wall, /✎ 画师乙 老师/); noSheetWord(wall);
+assert.equal((wall.match(/class="work-credit">✎ /g) || []).length, 3);
+console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组，每张都署名；上传图片走私有签名链接");
 T.set({ user: undefined, profile: null, view: "gallery", filter: "all", data: { ...base, profiles: [], submissions: [], tasks: guestRows } });
 T.render();
 const guestWall = el("#list").innerHTML;
 assert.equal(el("#count").textContent, "3 份稿件");
-assert.doesNotMatch(guestWall, /画师甲|画师乙|画师丙|data-work-path/); assert.match(guestWall, /登录后可以看到画师和作品原图/);
-console.log("  ✓ 游客能看到稿件展示，但看不到画师名和作品图");
+assert.equal((guestWall.match(/class="work-credit">✎ /g) || []).length, 3); assert.match(guestWall, /✎ 画师乙 老师/);
+assert.doesNotMatch(guestWall, /画师甲|data-work-path/); assert.match(guestWall, /登录后可以看作品原图/);
+console.log("  ✓ 游客的稿件展示也逐张署名；作品原图仍需登录");
 T.set({ user: { id: "u1" }, profile: null, view: "gallery", filter: "all", data: { ...base, tasks: tasks.filter((t) => !["3", "8", "9"].includes(t.id)) } });
 T.render();
 assert.match(el("#list").innerHTML, /还没有交上来的稿件/);

@@ -67,7 +67,7 @@ function sync(snapshot, norm = normalize) {
   }
 }
 const businessSnapshot = () => psql(`select md5(string_agg(x,'|' order by x)) from (
-  select concat_ws('/',id,points,assignee,status,due_date) x from guild_tasks where import_key not like 'kdocs:%'
+  select concat_ws('/',id,points,assignee,status,due_date) x from guild_tasks where id in (select id from public.test_baseline_tasks)
   union all select concat_ws('/',id,task_id,author_id,url,note,feedback) from guild_submissions
   union all select concat_ws('/',id,task_id,artist_id,points,submission_id) from guild_awards
   union all select concat_ws('/',id,name,role,active) from guild_profiles) t;`);
@@ -129,6 +129,8 @@ const inspect = () => psql(file("supabase/ops/00_inspect_readonly.sql"));
 const vInspect = rowVersions(); const report = inspect();
 assert.match(report, /mirror_cards \/ matched \(must be equal\)\|168 \/ 168/); assert.match(report, /preview_kind\|r/);
 assert.match(report, /cron jobs mentioning kdocs\|\(none\)/); assert.match(report, /\(missing\)/); assert.equal(rowVersions(), vInspect);
+psql(`create table public.test_baseline_tasks as select id from public.guild_tasks;`);
+assert.equal(one(`select count(*) from public.test_baseline_tasks;`), "168");
 const before = businessSnapshot();
 const guestBefore = one(`select count(*) from guild_task_preview;`, { role: "anon" });
 assert.equal(guestBefore, "168");
@@ -366,6 +368,58 @@ assert.equal(one(`select status||'/'||points||'/'||due_date from guild_tasks whe
 ok("负责人定分发布后成为待认领任务，DDL 保留");
 psql(`insert into guild_tasks(title,category,brief,status,import_key,source_record,points,assignee) values('x','c','b','imported','k-x','{}',20,'${ARTIST}');`, { expectError: "guild_tasks_score_ready" });
 ok("未发布的卡仍不能绑定画师（约束保留）");
+
+// ---------------------------------------------------------------- 011 unregistered artists
+console.log("场景：011 未注册画师 / 负责人代交");
+psql(file("supabase/011_unregistered_artists_and_proxy_submit.sql"));
+psql(file("supabase/011_unregistered_artists_and_proxy_submit.sql")); // re-run is harmless
+const rift = tid("rift");
+assert.equal(one(`select source_record->>'artist' from guild_tasks where id='${rift}';`), "画师1");
+psql(`select guild_activate_import('${rift}',20,null);`, asA);
+assert.equal(one(`select status||'/'||coalesce(assignee::text,'-')||'/'||artist_name||'/'||points from guild_tasks where id='${rift}';`), "active/-/画师1/20");
+assert.equal(one(`select status from guild_task_preview where id='${rift}';`, { role: "anon" }), "active");
+ok("表格里有画师的卡：不选账号直接按名字发布，进入创作中");
+psql(`select guild_action('${rift}','submit','https://example.com/r.png','自己交');`, { ...asArtist, expectError: "当前不能执行此操作" });
+psql(`select guild_admin_submit('${rift}','https://example.com/r.png','初稿');`, { ...asArtist, expectError: "只有负责人" });
+psql(`select guild_admin_submit('${rift}','https://example.com/r.png','初稿');`, asA);
+assert.equal(one(`select status from guild_tasks where id='${rift}';`), "submitted");
+assert.equal(one(`select note from guild_submissions where task_id='${rift}';`), "负责人代交：初稿");
+ok("负责人可以代交稿（画师本人和其他画师不行），进入待验收");
+psql(`select guild_action('${rift}','approve',null,null,'好');`, { ...asB, expectError: "还没绑定账号" });
+psql(`select guild_action('${rift}','changes',null,null,'光效再亮一点');`, asB);
+psql(`select guild_admin_submit('${rift}','https://example.com/r2.png','改好了');`, asA);
+ok("未绑定账号时不能验收记分，但可以退修、再代交");
+psql(`select guild_bind_artist('画师1','${ARTIST}');`, { ...asArtist, expectError: "只有负责人" });
+const bound = one(`select guild_bind_artist('画师1','${ARTIST}');`, asA);
+assert.equal(bound, "1");
+assert.equal(one(`select coalesce(artist_name,'-')||'/'||assignee from guild_tasks where id='${rift}';`), `-/${ARTIST}`);
+psql(`select guild_action('${rift}','approve',null,null,'好');`, asB);
+assert.equal(one(`select artist_id||'/'||points from guild_awards where task_id='${rift}';`), `${ARTIST}/20`);
+ok("画师注册后一键绑定，验收通过后 20 分记到 ta 账号上");
+const named2 = tid("blade");
+psql(`update guild_tasks set source_record=source_record||'{"artist":"小新"}' where id='${named2}';`);
+psql(`select guild_activate_import('${named2}',20,null);`, asA);
+psql(`select guild_release_artist_name('${named2}');`, asA);
+assert.equal(one(`select status||'/'||coalesce(artist_name,'-') from guild_tasks where id='${named2}';`), "open/-");
+ok("挂在名字下的任务可以改回待认领");
+psql(`update guild_tasks set artist_name='x' where id='${T.legacy03}';`, { expectError: "guild_tasks_artist_name_check" });
+ok("已有账号的任务不能再挂名字（约束）");
+psql(`create policy test_artist_upload on storage.objects for insert to authenticated with check ((storage.foldername(name))[1] = auth.uid()::text);`);
+const named3 = tid("seed");
+psql(`update guild_tasks set source_record=source_record||'{"artist":"小葵"}' where id='${named3}';`);
+psql(`select guild_activate_import('${named3}',20,null);`, asA);
+psql(`insert into storage.objects(bucket_id,name) values('guild-submissions','${ADMIN_A}/${named3}/x.png');`, asA);
+psql(`drop policy test_artist_upload on storage.objects;`);
+psql(`insert into storage.objects(bucket_id,name) values('guild-submissions','${ADMIN_A}/${rift}/y.png');`, { ...asA, expectError: "row-level security" });
+psql(`insert into storage.objects(bucket_id,name) values('guild-submissions','${ARTIST}/${named3}/z.png');`, { ...asA, expectError: "row-level security" });
+psql(`insert into storage.objects(bucket_id,name) values('guild-submissions','${ADMIN_A}/${named3}/w.png');`, asA);
+ok("负责人可上传代交图片：只能传到自己的文件夹、只能传给创作中的任务");
+assert.equal(one(`select artist_credit from guild_task_preview where id='${rift}';`, { role: "anon" }), "画师丙");
+psql(`select guild_admin_submit('${named3}','https://example.com/k.png','代交');`, asA);
+assert.equal(one(`select artist_credit from guild_task_preview where id='${named3}';`, { role: "anon" }), "小葵");
+assert.equal(one(`select count(*) from guild_task_preview where artist_credit is not null and status in ('open','active','changes');`, { role: "anon" }), "0");
+assert.equal(one(`select count(*) from guild_task_preview p join guild_tasks t using(id) where t.status='imported' and p.source_state='final' and coalesce(trim(t.source_record->>'artist'),'')<>'' and p.artist_credit is distinct from trim(t.source_record->>'artist');`), "0");
+ok("游客预览：有作品的任务都带署名（账号昵称或表格名字），没作品的任务不露名字");
 
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
