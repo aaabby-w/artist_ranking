@@ -17,6 +17,7 @@ const labels = {
   submitted: "待验收",
   changes: "待修改",
   done: "已完成",
+  imported: "原表登记",
 };
 let cfg = window.GUILD_CONFIG,
   client,
@@ -203,10 +204,12 @@ function render() {
     .forEach((b) =>
       b.classList.toggle("selected", b.dataset.filter === filter),
     );
+  renderImportSummary();
   if (view === "rank") {
     $("#list").innerHTML =
       '<div class="rank-list"><p class="muted">累计贡献 · 相同分数按昵称排列 · 仅记录已验收任务</p>' +
       people(ranking()) +
+      historySummary() +
       "</div>";
     $("#count").textContent = "累计榜";
     return;
@@ -217,7 +220,7 @@ function render() {
       (filter === "all" ||
         t.status === filter ||
         (filter === "active" && t.status === "changes")) &&
-      [t.title, t.category, t.brief]
+      [t.title, t.category, t.brief, t.source_record?.artist]
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -227,7 +230,7 @@ function render() {
     tasks
       .map(
         (t) =>
-          `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${labels[t.status]}</span></div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "时间可协商 · 不催稿"}</div><div class="card-bottom"><span>○ ${esc(name(t.assignee))}</span><span class="points">✧ ${t.points} 贡献分　↗</span></div></button>`,
+          `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span></div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "时间可协商 · 不催稿"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
       )
       .join("") ||
     '<div class="empty">这里暂时没有委托。<br>可以换个筛选，或去公告栏认领喜欢的任务。</div>';
@@ -384,8 +387,9 @@ function detail(id) {
   const subs = data.submissions.filter((s) => s.task_id === id);
   modal(
     t.title,
-    `<span class="tag">${esc(t.category)} · ${labels[t.status]}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">贡献 ${t.points} 分 · ${esc(name(t.assignee))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${subs.map((s) => `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p><a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`).join("")}${own && ["active", "changes"].includes(t.status) ? '<form id="submit-form"><label class="field">作品或网盘链接<input name="url" type="url" required placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="2000"></textarea></label><button class="primary">提交验收</button></form>' : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份委托</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还委托</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过并记入贡献</button><button class="outline" id="changes">请画师修改</button>' : ""}</div>`,
+    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${importDetail(t, admin)}${subs.map((s) => `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p><a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`).join("")}${own && ["active", "changes"].includes(t.status) ? '<form id="submit-form"><label class="field">作品或网盘链接<input name="url" type="url" required placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="2000"></textarea></label><button class="primary">提交验收</button></form>' : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份委托</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还委托</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过并记入贡献</button><button class="outline" id="changes">请画师修改</button>' : ""}</div>`,
   );
+  bindImportForm(t);
   $("#claim")?.addEventListener("click", () => act("claim", id));
   $("#release")?.addEventListener("click", () => act("release", id));
   $("#submit-form")?.addEventListener("submit", (e) => {
@@ -584,4 +588,124 @@ async function init() {
     render();
   }
 }
+
+function taskLabel(t) {
+  if (t.status !== "imported") return labels[t.status] || t.status;
+  return t.source_record?.status === "已递交终稿"
+    ? "原表已交终稿"
+    : t.source_record?.artist
+      ? "原表已登记画师"
+      : "原表未分配";
+}
+function taskArtist(t) {
+  return t.assignee
+    ? name(t.assignee)
+    : t.source_record?.artist || "未登记画师";
+}
+function pointLabel(t) {
+  return t.points == null ? "贡献分待约定" : `${Number(t.points)} 贡献分`;
+}
+function renderImportSummary() {
+  let box = $("#import-summary");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "import-summary";
+    box.className = "notice";
+    $("#stats").after(box);
+  }
+  const rows = data.tasks.filter((t) => t.import_key),
+    pending = rows.filter((t) => t.status === "imported").length;
+  box.hidden = !rows.length;
+  box.textContent = `原表 ${rows.length} 条记录 · ${rows.filter((t) => t.source_record?.artist).length} 条登记了画师 · ${rows.filter((t) => t.source_record?.status === "已递交终稿").length} 条已递交终稿 · ${pending} 条待负责人确认。原表交稿不等于平台验收，旧版参考需先确认是否共用美术。`;
+  if (!document.querySelector('[data-filter="imported"]')) {
+    const b = document.createElement("button");
+    b.dataset.filter = "imported";
+    b.textContent = "原表登记";
+    document.querySelector(".filters").append(b);
+  }
+}
+function historySummary() {
+  const artists = new Map();
+  for (const t of data.tasks) {
+    const s = t.source_record;
+    if (!s?.artist) continue;
+    const a = artists.get(s.artist) || { name: s.artist, count: 0, finals: 0 };
+    a.count++;
+    if (s.status === "已递交终稿") a.finals++;
+    artists.set(s.artist, a);
+  }
+  if (!artists.size) return "";
+  return (
+    '<h3>原表交稿记录</h3><p class="muted">这是导入时的登记快照，不是验收排名，不计入贡献分。新交稿请看平台记录。</p>' +
+    [...artists.values()]
+      .sort(
+        (a, b) => b.finals - a.finals || a.name.localeCompare(b.name, "zh-CN"),
+      )
+      .map(
+        (a) =>
+          `<div class="person"><span class="avatar">${esc(a.name.slice(0, 1))}</span><div class="name">${esc(a.name)}<small>原表登记 ${a.count} 条</small></div><strong>${a.finals}<small>已递交终稿</small></strong></div>`,
+      )
+      .join("")
+  );
+}
+function importDetail(t, admin) {
+  const s = t.source_record;
+  if (!s) return "";
+  let html = `<div class="submission"><b>原表记录 · ${esc(s.system)}</b><p>负责画师：${esc(s.artist || "未登记")}<br>完成情况：${esc(s.status || "未填写")}<br>来源：${esc(s.sheet)}，第 ${Number(s.row)} 行<br>卡牌 ID：${esc(s.card_id)}</p><a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">查看原始表格 ↗</a><p class="muted">保留导入时的登记，不自动绑定账号、不自动验收或记分。</p></div>`;
+  if (t.status !== "imported") return html;
+  if (!admin)
+    return (
+      html +
+      '<p class="muted">负责人确认贡献分和负责画师后，这份记录会转成可操作的委托。</p>'
+    );
+  const members = data.profiles.filter((p) => p.active);
+  return (
+    html +
+    `<form id="activate-import"><h3>确认这份委托</h3><p class="muted">请核对画师本人账号。已交终稿的记录也需要补交作品链接，再走验收。确认旧版卡牌前，请先排除共用美术的情况。</p><label class="field">已约定的贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写与画师约定的分数"></label><label class="field">负责画师的已开通账号<select name="assignee" ${s.artist ? "required" : ""}><option value="">${s.artist ? "请选择原画师账号" : "开放给成员认领"}</option>${members.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">找不到画师时，先请对方登录并由负责人开通账号，不要选同名或他人的账号代替。</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">确认并转为委托</button></form>`
+  );
+}
+function bindImportForm(t) {
+  const form = $("#activate-import");
+  if (!form) return;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    const button = form.querySelector("button");
+    button.disabled = true;
+    try {
+      const f = new FormData(form);
+      const points = Number(f.get("points"));
+      if (!Number.isInteger(points) || points < 1 || points > 1000)
+        throw Error("请填写 1–1000 的整数贡献分");
+      const assignee = f.get("assignee") || null;
+      if (demo) {
+        t.points = points;
+        t.assignee = assignee;
+        t.status = assignee ? "active" : "open";
+        store();
+        render();
+      } else {
+        const r = await client.rpc("guild_activate_import", {
+          p_task: t.id,
+          p_points: points,
+          p_assignee: assignee,
+          p_legacy_confirm: f.get("legacy") === "on",
+        });
+        if (r.error) throw r.error;
+        await load();
+      }
+      $("#dialog").close();
+      toast(
+        assignee ? "已绑定画师，请补充作品链接后提交验收。" : "已开放认领。",
+      );
+    } catch (e) {
+      error(e);
+    } finally {
+      busy = false;
+      button.disabled = false;
+    }
+  };
+}
+
 init();
