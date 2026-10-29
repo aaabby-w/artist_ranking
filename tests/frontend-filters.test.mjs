@@ -18,8 +18,8 @@ const ctx = vm.createContext({ document, window: { GUILD_CONFIG: { supabaseUrl: 
   crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000000" }, console, Date, Intl, URL });
 vm.runInContext(source + `
 globalThis.__t = {
-  set(v) { ({ user, profile, view, filter, data } = v); },
-  render, matchesTaskFilter, taskLabel, syncBadge, sourceState,
+  set(v) { ({ user, profile, view, filter, data } = v); adminFilter = v.adminFilter || "submitted"; },
+  render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask,
 };`, ctx);
 const T = ctx.__t;
 
@@ -34,24 +34,30 @@ const tasks = [
   { id: "7", status: "changes", points: 10, assignee: "u1" },
   { id: "8", status: "submitted", points: 10, assignee: "u1" },
   { id: "9", status: "done", points: 30, assignee: "u1", import_key: "k9", kdocs_card_id: "g", source_record: src("", ""), source_removed_at: "2026-10-29T10:00:00Z" },
+  { id: "10", status: "open", points: 40 }, // published manually by an admin
 ].map((t) => ({ title: "卡" + t.id, category: "卡牌 · 灵卡", brief: "说明", created_at: "2026-10-29T04:00:00Z", due_date: null, ...t }));
 const base = { profiles: [{ id: "u1", name: "画师丙", role: "artist", active: true }, { id: "a1", name: "负责人", role: "admin", active: true }], submissions: [], awards: [], campaign: [] };
 const counts = () => Object.fromEntries([...el(".filters").innerHTML.matchAll(/data-filter="([^"]+)"[^>]*>([^<]*?) (\d+)</g)].map((m) => [m[2], +m[3]]));
 
-// Artist (member) view
+const noSheetWord = (html) => assert.doesNotMatch(html, /原表/);
+
+// Artist (member) view: sheet cards merged into the platform lists
 T.set({ user: { id: "u1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks, sync: { state: { last_success_at: new Date().toISOString() }, run: { status: "success" } } } });
 T.render();
-assert.deepEqual(counts(), { 全部记录: 8, 待认领: 1, 创作中: 1, 待验收: 1, 待修改: 1, 已完成: 1,
-  "原表·尚未分配": 1, "原表·已登记画师": 1, "原表·已递交终稿": 1, 已从原表移除: 1, 原表变动待核实: 2 });
-console.log("  ✓ 画师：平台委托与原表登记分开计数；已移除的未启用卡不在“全部”里");
-assert.equal(T.taskLabel(tasks[3]), "已从原表移除"); assert.equal(T.taskLabel(tasks[0]), "原表尚未分配");
-assert.match(T.syncBadge(tasks[8]), /原表已移除/); assert.match(T.syncBadge(tasks[4]), /原表有更新/); assert.equal(T.syncBadge(tasks[0]), "");
-assert.match(el("#list").innerHTML, /原表已移除/); assert.doesNotMatch(el("#list").innerHTML, /data-task="4"/);
-console.log("  ✓ 卡片标签：原表状态文字、正式任务的“原表已移除/原表有更新”提醒");
-const summary = el("#import-summary").innerHTML;
-assert.match(summary, /原表现有 5 张卡/); assert.match(summary, /2 张已从原表移除/); assert.match(summary, /原表同步：/);
-assert.doesNotMatch(summary, /approve-sync/);
-console.log("  ✓ 摘要只统计原表现有卡，显示最近同步时间；画师看不到确认按钮");
+assert.deepEqual(counts(), { 全部记录: 9, 待认领: 3, 创作中: 2, 待验收: 2, 待修改: 1, 已完成: 1 });
+noSheetWord(el(".filters").innerHTML);
+console.log("  ✓ 画师：未分配→待认领、已登记画师→创作中、已递交终稿→待验收；分类名不含“原表”");
+assert.equal(T.taskLabel(tasks[0]), "待认领"); assert.equal(T.taskLabel(tasks[1]), "创作中"); assert.equal(T.taskLabel(tasks[2]), "待验收");
+assert.doesNotMatch(el("#list").innerHTML, /data-task="4"/); noSheetWord(el("#list").innerHTML);
+assert.match(T.syncBadge(tasks[8]), /待核实/); assert.match(T.syncBadge(tasks[4]), /资料有更新/);
+console.log("  ✓ 已从金山表移除的卡不出现在任何列表；正式任务只显示“待核实/资料有更新”提醒");
+T.set({ user: { id: "u1" }, profile: null, view: "board", filter: "open", data: { ...base, tasks } }); T.render();
+assert.equal(el("#count").textContent, "3 条记录");
+assert.match(el("#list").innerHTML, /贡献分待约定/);
+console.log("  ✓ 待认领列表含金山表未分配的卡，仍标“贡献分待约定”（需负责人定分后才能认领）");
+assert.doesNotMatch(el("#import-summary").innerHTML, /approve-sync|已从|移除/);
+assert.equal(el("#stats").innerHTML.match(/等待认领<\/small><strong>(\d+)/)[1], "3");
+console.log("  ✓ 顶部统计与合并后的列表一致；摘要条不再列移除数量");
 
 // Guest view: preview rows carry source_state only (no names, no source_record)
 const guestRows = tasks.filter((t) => !(t.status === "imported" && t.source_removed_at))
@@ -59,30 +65,40 @@ const guestRows = tasks.filter((t) => !(t.status === "imported" && t.source_remo
     source_state: status !== "imported" ? null : ({ 1: "unassigned", 2: "assigned", 3: "final" })[id] }));
 T.set({ user: undefined, profile: null, view: "board", filter: "all", data: { ...base, profiles: [], tasks: guestRows } });
 T.render();
-assert.deepEqual(counts(), { 全部记录: 8, 待认领: 1, 创作中: 1, 待验收: 1, 待修改: 1, 已完成: 1, "原表·尚未分配": 1, "原表·已登记画师": 1, "原表·已递交终稿": 1 });
-assert.doesNotMatch(el("#list").innerHTML, /画师甲|画师乙/);
-console.log("  ✓ 游客：同样的分组，但没有“已移除/待核实”，不显示任何画师名");
+assert.deepEqual(counts(), { 全部记录: 9, 待认领: 3, 创作中: 2, 待验收: 2, 待修改: 1, 已完成: 1 });
+assert.doesNotMatch(el("#list").innerHTML, /画师甲|画师乙|原表/);
+console.log("  ✓ 游客：同样的合并列表，不显示任何画师名");
+
+// Admin workbench
+T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", adminFilter: "open", data: { ...base, tasks } });
+T.render();
+const admin = el("#list").innerHTML;
+assert.match(admin, /待验收 2.*待认领 3.*创作中 2.*待修改 1.*已完成 1.*待核实 2/s);
+assert.doesNotMatch(admin, /已从原表|移除/); noSheetWord(admin);
+console.log("  ✓ 工作台：与公告栏同样的列表，没有“已从原表删除”，分类名不含“原表”");
+assert.equal([...admin.matchAll(/data-delete-task="([^"]+)"/g)].map((m) => m[1]).join(","), "10");
+console.log("  ✓ 删除按钮只出现在手动发布、尚未认领的任务上（金山表的卡没有）");
+T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", adminFilter: "open", data: { ...base, tasks: tasks.filter((t) => !t.source_removed_at && !t.source_pending) } });
+T.render();
+assert.doesNotMatch(el("#list").innerHTML, /待核实/);
+console.log("  ✓ 没有需要核实的正式任务时，“待核实”不显示");
+T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", adminFilter: "open",
+  data: { ...base, tasks, submissions: [{ id: "s1", task_id: "10", author_id: "u1", url: "https://x", note: "", feedback: "", created_at: "2026-10-29T00:00:00Z" }] } });
+T.render();
+assert.doesNotMatch(el("#list").innerHTML, /data-delete-task/);
+console.log("  ✓ 有过交稿记录的任务不显示删除按钮");
+T.set({ user: { id: "u1" }, profile: null, view: "admin", filter: "all", adminFilter: "open", data: { ...base, tasks } });
+assert.equal(T.canDeleteTask(tasks[9]), false); console.log("  ✓ 画师账号不能删除");
 
 // Admin with a blocked bulk removal
-T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "import-unassigned",
+T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all",
   data: { ...base, tasks, sync: { state: { last_success_at: new Date(Date.now() - 3600e3).toISOString(), approved_removals: null }, run: { status: "failed", error_code: "MASS_REMOVAL_BLOCKED_70" } } } });
 T.render();
 assert.match(el("#import-summary").innerHTML, /同步已暂停.*移除 70 张.*id="approve-sync" data-kind="removal" data-count="70"/s);
-assert.equal(el("#count").textContent, "1 条记录");
-console.log("  ✓ 负责人：大批移除被拦截时显示原因和“确认移除 70 张”按钮");
+console.log("  ✓ 负责人：大批移除被拦截时仍显示原因和确认按钮");
 T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all",
   data: { ...base, tasks, sync: { state: { last_success_at: new Date(Date.now() - 7200e3).toISOString() }, run: { status: "failed", error_code: "SOURCE_HTTP_401" } } } });
 T.render();
 assert.match(el("#import-summary").innerHTML, /同步失败.*SOURCE_HTTP_401.*令牌可能已过期/s);
 console.log("  ✓ 负责人：同步长时间失败时提示原因（令牌过期）");
-T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", data: { ...base, tasks } });
-T.render();
-assert.match(el("#list").innerHTML, /原表待确认 3/); assert.match(el("#list").innerHTML, /原表变动 2/);
-console.log("  ✓ 工作台：原表待确认不含已移除卡；新增“原表变动”筛选");
 console.log("PASS: frontend filters");
-// Website deployed before migration 007: guest rows have no source_state.
-T.set({ user: undefined, profile: null, view: "board", filter: "all", data: { ...base, profiles: [], tasks: guestRows.map(({ source_state, ...r }) => r) } });
-T.render();
-assert.equal(counts()["原表·尚未分配"], undefined); assert.equal(counts()["全部记录"], 8);
-assert.equal(T.taskLabel({ status: "imported" }), "原表登记");
-console.log("  ✓ 兼容：数据库升级前发布网页，游客仍显示“原表登记”，不误分类");

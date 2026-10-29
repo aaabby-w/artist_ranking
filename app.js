@@ -155,18 +155,17 @@ function sourceState(t) {
   if (t.source_record.status === "已递交终稿") return "final";
   return String(t.source_record?.artist || "").trim() ? "assigned" : "unassigned";
 }
+// 每条记录只进一个列表。原表卡按登记进度并入平台列表（仅显示，认领与记分仍需负责人定分）：
+// 尚未分配 → 待认领，已登记画师 → 创作中，已递交终稿 → 待验收；已从原表移除的不进任何列表。
+function taskList(t) {
+  if (t.status !== "imported") return t.status;
+  return { unassigned: "open", assigned: "active", final: "submitted", unknown: "open" }[sourceState(t)] || null;
+}
 function matchesTaskFilter(t, selected) {
-  const source = sourceState(t);
-  // 已从原表移除的未启用卡默认隐藏，只在“已从原表移除”里查看。
-  if (selected === "all") return source !== "removed";
-  if (selected === "imported") return t.status === "imported" && source !== "removed";
-  if (selected === "import-final") return source === "final";
-  if (selected === "import-assigned") return source === "assigned";
-  if (selected === "import-unassigned") return source === "unassigned";
-  if (selected === "source-removed") return source === "removed";
   if (selected === "source-attention")
     return t.status !== "imported" && (!!t.source_removed_at || !!t.source_pending);
-  return t.status === selected;
+  const list = taskList(t);
+  return selected === "all" ? list !== null : list === selected;
 }
 function matchesTaskSearch(t) {
   return [t.title, t.category, t.brief, t.source_record?.artist, t.source_record?.card_id]
@@ -179,8 +178,6 @@ function updateTaskFilters() {
   const candidates = data.tasks.filter(
     (t) => (view !== "mine" || t.assignee === user?.id) && matchesTaskSearch(t),
   );
-  const signedIn = demo || !!user;
-  // 前一组是平台正式委托（可认领、记分），后一组只是金山原表的登记进度。
   const definitions = [
     ["all", "全部记录"],
     ...(view === "board" ? [["open", "待认领"]] : []),
@@ -188,19 +185,6 @@ function updateTaskFilters() {
     ["submitted", "待验收"],
     ["changes", "待修改"],
     ["done", "已完成"],
-    ...(view === "board"
-      ? [
-          ["import-unassigned", "原表·尚未分配"],
-          ["import-assigned", "原表·已登记画师"],
-          ["import-final", "原表·已递交终稿"],
-          ...(signedIn
-            ? [
-                ["source-removed", "已从原表移除"],
-                ["source-attention", "原表变动待核实"],
-              ]
-            : []),
-        ]
-      : []),
   ];
   const options = definitions
     .map(([id, label]) => ({
@@ -232,17 +216,17 @@ function render() {
   $("#stats").innerHTML = [
     [
       "等待认领",
-      data.tasks.filter((t) => t.status === "open").length,
+      data.tasks.filter((t) => taskList(t) === "open").length,
       "份任务",
     ],
     [
       "正在创作",
-      data.tasks.filter((t) => ["active", "changes"].includes(t.status)).length,
+      data.tasks.filter((t) => ["active", "changes"].includes(taskList(t))).length,
       "份任务",
     ],
     [
       "等待验收",
-      data.tasks.filter((t) => t.status === "submitted").length,
+      data.tasks.filter((t) => taskList(t) === "submitted").length,
       "份作品",
     ],
     [
@@ -580,7 +564,7 @@ function detail(id) {
   const subs = data.submissions.filter((s) => s.task_id === id);
   modal(
     t.title,
-    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
+    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${admin && canDeleteTask(t) ? ' <button class="outline danger" id="delete-task">删除任务</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
       const path = uploadedImagePath(s.url);
       const link = path
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
@@ -611,6 +595,7 @@ function detail(id) {
   );
   if (!demo && user) void showUploadedImages();
   $("#edit-task")?.addEventListener("click", () => newTask(t));
+  $("#delete-task")?.addEventListener("click", () => deleteTask(t.id));
   $("#claim")?.addEventListener("click", () => {
     if (!demo && !user) {
       $("#dialog").close();
@@ -864,31 +849,27 @@ async function init() {
 
 function taskLabel(t) {
   if (t.status !== "imported") return labels[t.status] || t.status;
-  return {
-    final: "原表已交终稿",
-    assigned: "原表已登记画师",
-    unassigned: "原表尚未分配",
-    removed: "已从原表移除",
-  }[sourceState(t)] || "原表登记";
+  return labels[taskList(t)] || "待认领";
 }
-// 正式任务与原表不一致时的提醒；只提示，不改动委托本身。
+// 正式任务与金山表不一致时的提醒；只提示，不改动委托本身。
 function syncBadge(t) {
   if (t.status === "imported") return "";
-  if (t.source_removed_at) return '<span class="tag warn">原表已移除</span>';
-  if (t.source_pending) return '<span class="tag warn">原表有更新</span>';
+  if (t.source_removed_at) return '<span class="tag warn">待核实</span>';
+  if (t.source_pending) return '<span class="tag warn">资料有更新</span>';
   return "";
 }
 function taskArtist(t) {
   if (!demo && !user) {
-    if (t.status === "open") return "等待认领";
-    if (t.status === "done") return "已完成";
-    if (t.status === "imported") return "原表登记";
+    const list = taskList(t);
+    if (list === "open") return "等待认领";
+    if (list === "done") return "已完成";
+    if (list === "submitted") return "已交稿";
     return "已有画师负责";
   }
   return t.assignee
     ? name(t.assignee)
     : t.status === "imported"
-      ? t.source_record?.artist || "未登记画师"
+      ? t.source_record?.artist || "未分配画师"
       : "未认领";
 }
 function pointLabel(t) {
@@ -902,11 +883,9 @@ function renderImportSummary() {
     box.className = "notice";
     $("#stats").after(box);
   }
-  const rows = data.tasks.filter((t) => t.import_key && !t.source_removed_at),
-    removed = data.tasks.filter((t) => t.import_key && t.source_removed_at).length,
-    pending = rows.filter((t) => t.status === "imported").length;
-  box.hidden = !rows.length;
-  box.innerHTML = `${esc(`原表现有 ${rows.length} 张卡 · ${rows.filter((t) => t.source_record?.artist).length} 张登记了画师 · ${rows.filter((t) => t.source_record?.status === "已递交终稿").length} 张已递交终稿 · ${pending} 张未转为正式任务${removed ? ` · ${removed} 张已从原表移除（记录保留）` : ""}。原表交稿不等于平台验收。`)}${syncStatusHTML()}`;
+  const html = syncStatusHTML();
+  box.hidden = !html;
+  box.innerHTML = html;
   $("#approve-sync")?.addEventListener("click", async (e) => {
     const n = Number(e.currentTarget.dataset.count),
       kind = e.currentTarget.dataset.kind;
@@ -927,7 +906,7 @@ function syncStatusHTML() {
   const s = data.sync;
   if (!s?.state) return "";
   const last = s.state.last_success_at ? new Date(s.state.last_success_at) : null;
-  let html = `<br><small>原表同步：${last ? last.toLocaleString("zh-CN") : "尚未成功"}</small>`;
+  let html = `<small>金山表同步：${last ? last.toLocaleString("zh-CN") : "尚未成功"}</small>`;
   if (profile?.role !== "admin" || !s.run || s.run.status !== "failed") return html;
   const code = String(s.run.error_code || ""),
     bulk = code.match(/^MASS_(REMOVAL|INSERT)_BLOCKED_(\d+)$/);
@@ -935,7 +914,7 @@ function syncStatusHTML() {
     const kind = bulk[1] === "REMOVAL" ? "removal" : "insert",
       n = Number(bulk[2]),
       approved = kind === "removal" ? s.state.approved_removals : s.state.approved_inserts;
-    return html + `<br><b>同步已暂停：</b>原表这次会${kind === "removal" ? "移除" : "新增"} ${n} 张卡。若是有意修改，请确认；若原表被误删或读取异常，请先在金山修复。${approved === n ? "（已确认，等待下次同步）" : ` <button class="outline" id="approve-sync" data-kind="${kind}" data-count="${n}">确认${kind === "removal" ? "移除" : "新增"} ${n} 张</button>`}`;
+    return html + `<br><b>同步已暂停：</b>金山表这次会${kind === "removal" ? "移除" : "新增"} ${n} 张卡。若是有意修改，请确认；若被误删或读取异常，请先在金山修复。${approved === n ? "（已确认，等待下次同步）" : ` <button class="outline" id="approve-sync" data-kind="${kind}" data-count="${n}">确认${kind === "removal" ? "移除" : "新增"} ${n} 张</button>`}`;
   }
   const stale = !last || Date.now() - last > 30 * 60 * 1000;
   return stale
@@ -1238,19 +1217,17 @@ function newTask(task = null) {
 }
 function renderAdmin() {
   const pending = data.profiles.filter((p) => !p.active && p.role === "artist");
+  const inAdminFilter = (t, f) =>
+    matchesTaskFilter(t, f === "attention" ? "source-attention" : f);
+  // 与公告栏同样的列表；“待核实”只在有正式任务需要核对时出现。
   const filters = [
     ["submitted", "待验收"],
-    ["imported", "原表待确认"],
-    ["open", "待分配"],
+    ["open", "待认领"],
     ["active", "创作中"],
     ["changes", "待修改"],
     ["done", "已完成"],
-    ["attention", "原表变动"],
-  ];
-  const inAdminFilter = (t, f) =>
-    f === "attention"
-      ? matchesTaskFilter(t, "source-attention")
-      : t.status === f && !(t.status === "imported" && t.source_removed_at);
+    ["attention", "待核实"],
+  ].filter(([value]) => value !== "attention" || adminFilter === value || data.tasks.some((t) => inAdminFilter(t, value)));
   const rows = data.tasks
     .filter(
       (t) =>
@@ -1268,8 +1245,11 @@ function renderAdmin() {
     );
   $("#count").textContent = `${pending.length} 位画师待开通`;
   $("#list").innerHTML =
-    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。原表记录先核对画师与分值；旧版参考先确认是否需要单独绘制。已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? "确认记录" : "查看 / 处理"}</button></td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
+    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。金山表里的卡先定分、核对画师账号再转为正式任务；已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? "定分发布" : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
   $("#admin-create").onclick = () => newTask();
+  document.querySelectorAll("[data-delete-task]").forEach(
+    (b) => (b.onclick = () => deleteTask(b.dataset.deleteTask)),
+  );
   $("#show-score-guide").onclick = () =>
     modal("暂行任务分值", scoreGuideHTML());
   $("#manage-members").onclick = manageMembers;
@@ -1288,6 +1268,25 @@ function renderAdmin() {
     $("#admin-search").focus();
     $("#admin-search").setSelectionRange(pos, pos);
   };
+}
+// 负责人可删除自己发布、还没人认领的任务；金山表里的卡请在金山表里删。
+function canDeleteTask(t) {
+  return profile?.role === "admin" && t.status === "open" && !t.import_key && !t.kdocs_card_id &&
+    !data.submissions.some((s) => s.task_id === t.id);
+}
+async function deleteTask(id) {
+  const t = data.tasks.find((x) => x.id === id);
+  if (!t || !canDeleteTask(t)) return toast("这份任务不能删除，请刷新后再试");
+  if (!confirm(`确定删除「${t.title}」吗？删除后无法恢复。`)) return;
+  try {
+    await adminRPC("guild_delete_task", { p_task: id }, () => {
+      data.tasks = data.tasks.filter((x) => x.id !== id);
+    });
+    if ($("#dialog").open) $("#dialog").close();
+    toast("已删除任务。");
+  } catch (e) {
+    error(e);
+  }
 }
 async function adminRPC(name, args, demoAction) {
   if (!profile?.active || profile.role !== "admin")

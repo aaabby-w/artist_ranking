@@ -289,6 +289,32 @@ psql(`update guild_tasks set points=999 where id='${T.claw}';`, { ...asArtist, e
 psql(`update guild_kdocs_cards set data='{}';`, { ...asA, expectError: "permission denied" }); ok("登录用户（含负责人）不能直接改任务表或同步表");
 assert.equal(one(`select count(*) from guild_kdocs_cards;`, asArtist), String(98 + 70 + 1)); ok("已开通成员可读同步表（用于显示同步状态）");
 
+// ---------------------------------------------------------------- 008 admin delete
+console.log("场景：负责人删除已发布任务");
+psql(file("supabase/008_admin_delete_task.sql"));
+assert.equal(businessSnapshot(), before); ok("同步全部场景结束：原有业务数据仍与开始时一致");
+const manual = one(`select guild_save_task(null,'手动任务','角色立绘','要求',50);`, asA);
+assert.equal(one(`select count(*) from guild_task_preview where id='${manual}';`, { role: "anon" }), "1");
+psql(`select guild_delete_task('${manual}');`, { ...asArtist, expectError: "只有负责人" });
+psql(`select guild_delete_task('${manual}');`, { role: "anon", expectError: "permission denied" });
+psql(`select guild_delete_task('${manual}');`, asA);
+assert.equal(one(`select count(*) from guild_tasks where id='${manual}';`), "0");
+assert.equal(one(`select count(*) from guild_task_preview where id='${manual}';`), "0");
+ok("负责人可删除手动发布、未认领的任务；游客预览同步消失；画师/游客不能删");
+psql(`select guild_delete_task('${T.claw}');`, { ...asA, expectError: "来自金山表" });
+psql(`select guild_delete_task('${tid("devour")}');`, { ...asA, expectError: "来自金山表" });
+ok("金山表来的卡（未发布或已发布）都不能在网站删除");
+const claimed = one(`select guild_save_task(null,'已认领任务','角色立绘','要求',30);`, asA);
+psql(`select guild_action('${claimed}','claim');`, asArtist);
+psql(`select guild_delete_task('${claimed}');`, { ...asA, expectError: "还没人认领" });
+psql(`select guild_action('${claimed}','submit','https://example.com/x.png','初稿');`, asArtist);
+psql(`select guild_action('${claimed}','changes',null,null,'再改改');`, asA);
+psql(`select guild_action('${claimed}','release');`, asArtist);
+assert.equal(one(`select status from guild_tasks where id='${claimed}';`), "open");
+psql(`select guild_delete_task('${claimed}');`, { ...asA, expectError: "已有交稿或贡献记录" });
+assert.equal(one(`select count(*) from guild_submissions where task_id='${claimed}';`), "1");
+ok("已被认领、或曾经交过稿（即使已归还为待认领）的任务不能删除，作品记录保留");
+
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
 psql(`insert into vault.secrets(name, secret) values('kdocs_sync_trigger', repeat('x',40));`);
@@ -301,6 +327,5 @@ psql(`select public.guild_kdocs_dispatch();`, { role: "authenticated", expectErr
 psql(`insert into cron.job(jobname,schedule,command) values('old-sync','* * * * *','select net.http_post(''https://x/functions/v1/kdocs-sync'')');`);
 psql(sched, { expectError: "已存在其他同步定时任务" }); ok("发现另一个同步定时任务时停止，不重复创建");
 
-assert.equal(businessSnapshot(), before);
 execFileSync("dropdb", [DB]);
 console.log(`PASS: ${passed} checks`);
