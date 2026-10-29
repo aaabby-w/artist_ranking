@@ -1335,7 +1335,18 @@ function phaseRanking() {
 }
 function rewardHTML() {
   const c = campaign();
-  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p><h3 class="reward-title">本期最高贡献奖励 <strong>¥100</strong></h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL（截止日期）：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL（截止日期） 还在定～"}</p><p>本期贡献榜第一名奖励 100 元，并列第一均分。资金由自愿赞助提供，用于本期美术组专项感谢。</p><p>DDL（截止日期） 前提交的最终通过版本，计入本期贡献。</p><p>我们想赶上罗小黑 TV 更新时大家又聚到一起的机会，多做出一些能真正玩起来的完整玩法，让更多喜欢小黑的人看到这个企划。</p><details class="reward-why"><summary>为什么有 DDL（截止日期） 和这 100 元？</summary><p>美术组人多，一份玩法也常常要等好几份素材才能拼起来。如果一直没有约定好的时间，事情很容易一拖再拖，刚加入时的热情也会慢慢消耗。所以定一个阶段性的 DDL（截止日期），让大家知道这段时间一起往哪里赶，也方便开发安排实装。</p><p>这 100 元来自自愿赞助，是给本期投入最多的小画师的一点感谢。榜单有名次，但每一份按约定完成的作品，都在帮游戏往前走。</p><p>认领前先看看自己的时间。遇到考试、工作或画不完的情况，提前和负责人说，我们一起调整安排；需要归还任务也没关系，别一个人硬扛 (｡･ω･｡)</p></details>`;
+  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p>
+<h3 class="reward-title">本期最高贡献奖励 <strong>¥100</strong></h3>
+<p>${c.ends_at ? `${esc(c.name)}<br>DDL（截止日期）：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL（截止日期）还没定～"}</p>
+<p>本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。钱来自大家的自愿赞助，主要是想给这段时间投入比较多的小画师一点小奖励。</p>
+<p>在 DDL（截止日期）前提交，并且最终通过的作品，都会计入本期贡献。</p>
+<p>我们想尽量赶上罗小黑 TV 更新的这波热度，在这段时间里多做一些能玩的项目，也让更多喜欢罗小黑的人发现我们。（万一被HMCH注意到了呢(ﾉ>ω<)ﾉ ）</p>
+<details class="reward-why">
+<summary>为什么要设 DDL（截止日期），还有这 100 元？</summary>
+<p>因为很多素材不是独立的。一份玩法可能要等好几位画师的素材才能继续做。如果没有一个大致的时间安排，开发这边也不好确定进度，任务就容易一直搁着,还会消耗大家的热情…… 所以每期会设一个 DDL（截止日期），方便大家安排时间，也方便开发组往下推进。</p>
+<p>100 元是好心人自愿赞助的，作为本期贡献榜第一名的奖励。另外，我们也会根据贡献记录整理最后的鸣谢名单。</p>
+<p>认领任务之前可以先看看自己的时间。如果最近有考试、工作，或者发现任务确实画不完，提前和负责人说一声就好。任务可以调整，也可以归还，不用有心理负担～</p>
+</details>`;
 }
 function phaseHTML() {
   const c = campaign(),
