@@ -489,8 +489,8 @@ async function act(action, id, extra = {}) {
         claim: "认领成功，期待你的作品。",
         release: "已归还任务，等你有空再来。",
         submit: "交稿成功，等待负责人验收。",
-        approve: "已通过验收，贡献已记入芳名录。",
-        changes: "修改意见已送达。",
+        approve: "已通过，放进稿件展示了～",
+        changes: "已打回，理由已送达。",
         create: "任务已发布。",
         edit: "任务已更新。",
       }[action],
@@ -576,10 +576,27 @@ function detail(id) {
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
       return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${artistBindHTML(t, admin)}${(own || admin) && ["active", "changes"].includes(t.status) ? `<form id="submit-form">${own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（PNG / JPG / WebP，最多 10 MB）<input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">验收反馈<textarea id="feedback" maxlength="2000" placeholder="需要修改时，请写清具体位置和建议。"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? `${t.assignee ? '<button class="primary" id="approve">通过并记入贡献</button>' : ""}<button class="outline" id="changes">请画师修改</button>` : ""}</div>`,
+    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${(own || admin) && ["active", "changes"].includes(t.status) ? `<form id="submit-form">${own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（PNG / JPG / WebP，最多 10 MB）<input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
   bindArtistActions(t);
+  document.querySelectorAll("#review-card [data-review]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const action = b.dataset.review;
+        const reason = $("#review-card").elements.reason.value.trim();
+        if (action === "reject" && !reason) return toast("请先写明打回理由");
+        try {
+          await adminRPC("guild_review_card", { p_task: t.id, p_action: action, p_reason: reason || null }, () =>
+            Object.assign(t, { status: action === "approve" ? "done" : "changes", artist_name: t.source_record?.artist, review_note: action === "approve" ? null : reason }),
+          );
+          $("#dialog").close();
+          toast(action === "approve" ? "已通过，放进稿件展示了～" : "已打回，理由已送达。");
+        } catch (e) {
+          error(e);
+        }
+      }),
+  );
   document.querySelectorAll("#dialog [data-resolve]").forEach(
     (b) =>
       (b.onclick = async () => {
@@ -650,7 +667,7 @@ function detail(id) {
   for (const a of ["approve", "changes"])
     $("#" + a)?.addEventListener("click", () => {
       const feedback = $("#feedback").value.trim();
-      if (a === "changes" && !feedback) return toast("请先填写具体修改意见");
+      if (a === "changes" && !feedback) return toast("请先写明打回理由");
       act(a, id, { feedback });
     });
 }
@@ -971,6 +988,10 @@ function importDetail(t, admin) {
     html += `<div class="submission"><b>原表资料有更新，待负责人核对</b><p>新名称：${esc(t.source_pending.title)}</p><p class="detail-copy">${esc(t.source_pending.brief)}</p><p class="muted">${t.status === "open" ? "采用后会更新任务名称和要求，贡献分不变。" : "画师已接手，平台不会自动改动已约定的要求；请先与画师沟通。"}</p>${admin ? `<div class="actions">${t.status === "open" ? '<button class="primary" data-resolve="accept">采用原表新资料</button>' : ""}<button class="outline" data-resolve="dismiss">保持原要求</button></div>` : ""}</div>`;
   if (t.status !== "imported") return html;
   if (t.source_removed_at) return html;
+  if (sourceState(t) === "final")
+    return html + (admin
+      ? `<form id="review-card"><h3>验收这张终稿</h3><p class="muted">画师：${esc(s.artist || "表格里没写")}。通过后放进稿件展示并记 ${Number(t.points || 20)} 分${t.assignee ? "" : "（ta 还没注册的话，分数先挂着，绑定账号后补记）"}。</p><label class="field">打回理由（点「不通过」时必填）<textarea name="reason" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label><div class="actions"><button class="primary" type="button" data-review="approve">通过 · 放进稿件展示</button><button class="outline danger" type="button" data-review="reject">不通过</button></div></form>`
+      : '<p class="muted">这张已交终稿，等负责人验收～</p>');
   const sameName = data.profiles.find((p) => p.active && s.artist && p.name.trim() === String(s.artist).trim());
   if (!admin)
     return (
@@ -980,7 +1001,7 @@ function importDetail(t, admin) {
   const members = data.profiles.filter((p) => p.active);
   return (
     html +
-    `${publishIntro(t)}<form id="activate-import"><label class="field">贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写分数" value="${t.points ? Number(t.points) : ""}"></label><label class="field">负责画师<select name="assignee"><option value="">${s.artist ? `${esc(s.artist)}（按表格名字，还没注册也行）` : "开放给大家认领"}</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">${s.artist ? "选了账号就挂在账号下；用表格名字的话，等 ta 注册后在任务里点「绑定账号」。" : "选了账号就直接进入「创作中」。"}</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">${s.artist ? "发布到「创作中」" : "发布到「待认领」"}</button></form>${sourceState(t) === "final" ? "</details>" : ""}`
+    `${publishIntro(t)}<form id="activate-import"><label class="field">贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写分数" value="${t.points ? Number(t.points) : ""}"></label><label class="field">负责画师<select name="assignee"><option value="">${s.artist ? `${esc(s.artist)}（按表格名字，还没注册也行）` : "开放给大家认领"}</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">${s.artist ? "选了账号就挂在账号下；用表格名字的话，等 ta 注册后在任务里点「绑定账号」。" : "选了账号就直接进入「创作中」。"}</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">${s.artist ? "发布到「创作中」" : "发布到「待认领」"}</button></form>`
   );
 }
 function bindImportForm(t) {
@@ -1122,12 +1143,8 @@ function phaseRanking() {
     .map((p) => {
       const awards = data.awards.filter((a) => {
         const s = data.submissions.find((s) => s.id === a.submission_id);
-        return (
-          a.artist_id === p.id &&
-          s &&
-          Date.parse(s.created_at) >= Date.parse(c.starts_at) &&
-          Date.parse(s.created_at) <= Date.parse(c.ends_at)
-        );
+        const at = Date.parse(s ? s.created_at : a.created_at); // 金山表终稿没有网站交稿记录，按通过时间算
+        return a.artist_id === p.id && at >= Date.parse(c.starts_at) && at <= Date.parse(c.ends_at);
       });
       return {
         ...p,
@@ -1265,7 +1282,7 @@ function workTile({ t, sub, kind }) {
     ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}" loading="lazy" onerror="this.parentNode.classList.add('broken')">`
     : sub
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
-      : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" ? "终稿在金山表" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
+      : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿在金山表" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
   const when = sub ? new Date(sub.created_at).toLocaleDateString("zh-CN") : "";
   return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info"><h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)} 老师` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
 }
@@ -1337,7 +1354,7 @@ function renderAdmin() {
     );
   $("#count").textContent = `${pending.length} 位画师待开通`;
   $("#list").innerHTML =
-    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。金山表里的卡先定分、核对画师账号再转为正式任务；已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? (sourceState(t) === "final" ? "查看" : "发布") : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}${canUnpublish(t) ? `<button class="outline" data-unpublish-task="${esc(t.id)}">撤回发布</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
+    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。金山表里的卡先定分、核对画师账号再转为正式任务；已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? (sourceState(t) === "final" ? "验收" : "发布") : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}${canUnpublish(t) ? `<button class="outline" data-unpublish-task="${esc(t.id)}">撤回发布</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
   $("#admin-create").onclick = () => newTask();
   document.querySelectorAll("[data-delete-task]").forEach(
     (b) => (b.onclick = () => deleteTask(b.dataset.deleteTask)),
@@ -1368,8 +1385,6 @@ function renderAdmin() {
 function publishIntro(t) {
   const s = t.source_record || {};
   const state = sourceState(t);
-  if (state === "final")
-    return `<div class="publish-note"><b>这张已经交终稿了，不用发布</b><p>它会一直留在「待验收」和稿件展示里，署名 ${esc(s.artist || "待补")}。</p></div><details class="publish-more"><summary>要在网站上重新走一遍交稿和验收再发布（一般不需要）</summary><p class="muted">发布后它会移到「创作中」，要有人在网站上交稿后才会回到「待验收」。点错了可以「撤回发布」。</p>`;
   return `<div class="publish-note"><b>发布这张卡</b><p>${s.artist ? `发布后进入「创作中」，由 ${esc(s.artist)} 负责；之后可以 ta 自己交稿，也可以负责人代交。` : "发布后进入「待认领」，画师登录后就能认领。"}点错了可以「撤回发布」。</p></div>`;
 }
 function canUnpublish(t) {

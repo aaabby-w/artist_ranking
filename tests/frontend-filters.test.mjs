@@ -126,11 +126,12 @@ console.log("  ✓ 奖励文案精简，不再出现“额外感谢，不是稿�
 // Publish form wording
 T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks } }); T.render();
 const finalForm = T.importDetail(tasks[2], true), namedForm = T.importDetail(tasks[1], true), openForm = T.importDetail(tasks[0], true);
-assert.match(finalForm, /这张已经交终稿了，不用发布/); assert.match(finalForm, /<details class="publish-more">[\s\S]*<form id="activate-import">[\s\S]*<\/form><\/details>/);
+assert.match(finalForm, /<form id="review-card">/); assert.match(finalForm, /data-review="approve">通过 · 放进稿件展示/); assert.match(finalForm, /data-review="reject">不通过/);
+assert.doesNotMatch(finalForm, /activate-import|发布/);
 assert.match(namedForm, /发布后进入「创作中」，由 画师甲 负责/); assert.match(namedForm, /发布到「创作中」/);
 assert.match(openForm, /发布后进入「待认领」/); assert.match(openForm, /发布到「待认领」/);
 for (const f of [finalForm, namedForm, openForm]) assert.doesNotMatch(f, /确认并转为任务/);
-console.log("  ✓ 发布按钮写明去向；已交终稿的卡默认不显示发布表单（折叠起来防误点）");
+console.log("  ✓ 发布按钮写明去向；已交终稿的卡只有「通过 · 放进稿件展示」和「不通过」");
 assert.equal(T.canUnpublish(tasks[4]), true);   // published sheet card, open
 assert.equal(T.canUnpublish(tasks[9]), false);  // manual task → use delete
 assert.equal(T.canUnpublish(tasks[8]), false);  // done

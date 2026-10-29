@@ -1147,3 +1147,7 @@ textarea {
   font-size: 12px;
   color: var(--muted);
 }
+.review-note {
+  border-color: #e3c4b2;
+  background: #fbf1ea;
+}

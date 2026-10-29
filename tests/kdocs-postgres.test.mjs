@@ -385,10 +385,9 @@ psql(`select guild_admin_submit('${rift}','https://example.com/r.png','初稿');
 assert.equal(one(`select status from guild_tasks where id='${rift}';`), "submitted");
 assert.equal(one(`select note from guild_submissions where task_id='${rift}';`), "负责人代交：初稿");
 ok("负责人可以代交稿（画师本人和其他画师不行），进入待验收");
-psql(`select guild_action('${rift}','approve',null,null,'好');`, { ...asB, expectError: "还没绑定账号" });
 psql(`select guild_action('${rift}','changes',null,null,'光效再亮一点');`, asB);
 psql(`select guild_admin_submit('${rift}','https://example.com/r2.png','改好了');`, asA);
-ok("未绑定账号时不能验收记分，但可以退修、再代交");
+ok("未绑定账号时可以打回、再代交");
 psql(`select guild_bind_artist('画师1','${ARTIST}');`, { ...asArtist, expectError: "只有负责人" });
 const bound = one(`select guild_bind_artist('画师1','${ARTIST}');`, asA);
 assert.equal(bound, "1");
@@ -439,6 +438,36 @@ psql(`select guild_unpublish_task('${up}');`, { ...asA, expectError: "已有交�
 const manual2 = one(`select guild_save_task(null,'手动二','角色立绘','要求',20);`, asA);
 psql(`select guild_unpublish_task('${manual2}');`, { ...asA, expectError: "请用删除" });
 ok("已交过稿、已完成、手动发布的任务都不能撤回发布");
+
+// ---------------------------------------------------------------- 013 two-button review
+console.log("场景：013 待验收两个按钮");
+psql(file("supabase/013_review_two_buttons.sql"));
+psql(file("supabase/013_review_two_buttons.sql"));
+const finals = psql(`select id from guild_tasks where status='imported' and source_removed_at is null and source_record->>'status'='已递交终稿' and coalesce(trim(source_record->>'artist'),'')<>'' order by id limit 2;`).split("\n");
+assert.equal(finals.length, 2);
+const [fa, fb] = finals;
+const faArtist = one(`select source_record->>'artist' from guild_tasks where id='${fa}';`);
+psql(`select guild_review_card('${fa}','approve');`, { ...asArtist, expectError: "只有负责人" });
+psql(`select guild_review_card('${fa}','approve');`, asA);
+assert.equal(one(`select status||'/'||artist_name||'/'||points from guild_tasks where id='${fa}';`), `done/${faArtist}/20`);
+assert.equal(one(`select coalesce(artist_id::text,'-')||'/'||artist_name||'/'||points from guild_awards where task_id='${fa}';`), `-/${faArtist}/20`);
+assert.equal(one(`select status||'/'||artist_credit from guild_task_preview where id='${fa}';`, { role: "anon" }), `done/${faArtist}`);
+ok("金山表终稿「通过」→ 已完成、进稿件展示并署名；画师未注册，20 分先挂在名字下");
+psql(`select guild_review_card('${fb}','reject','');`, { ...asA, expectError: "请写明打回理由" });
+psql(`select guild_review_card('${fb}','reject','背景太空，加点灵光');`, asA);
+assert.equal(one(`select status||'/'||review_note from guild_tasks where id='${fb}';`), "changes/背景太空，加点灵光");
+psql(`select guild_admin_submit('${fb}','https://example.com/fb.png','改好了');`, asA);
+psql(`select guild_action('${fb}','changes',null,null,'');`, { ...asB, expectError: "请写明打回理由" });
+psql(`select guild_action('${fb}','approve',null,null,'');`, asB);
+assert.equal(one(`select status||'/'||coalesce(review_note,'-') from guild_tasks where id='${fb}';`), "done/-");
+ok("「不通过」必须写理由，退回待修改；改完代交后再通过");
+psql(`select guild_review_card('${fa}','approve');`, { ...asA, expectError: "不在待验收" });
+const faHeld = one(`select count(*) from guild_awards where artist_name='${faArtist}' and artist_id is null;`);
+psql(`select guild_bind_artist('${faArtist}','${ARTIST}');`, asA);
+assert.equal(one(`select count(*) from guild_awards where artist_name='${faArtist}' and artist_id is null;`), "0");
+assert.equal(one(`select artist_id from guild_awards where task_id='${fa}';`), ARTIST);
+assert.equal(one(`select assignee||'/'||coalesce(artist_name,'-') from guild_tasks where id='${fa}';`), `${ARTIST}/-`);
+ok(`绑定账号后挂着的分数（${faHeld} 笔）自动补记到账号上`);
 
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
