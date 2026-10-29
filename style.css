@@ -1205,3 +1205,5 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 #announcement-close { font-size: 23px; }
 .campaign-announcement[hidden], #announcement-body[hidden] { display: none; }
 .campaign-announcement h2 { clear: both; }
+
+#announcement-toggle { font-size: 24px; line-height: 1; }

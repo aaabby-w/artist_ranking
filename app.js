@@ -935,9 +935,9 @@ function initAnnouncement() {
   let state; try { state = localStorage.getItem('guild-announcement-display'); } catch {}
   box.hidden = state === 'closed';
   body.hidden = state === 'collapsed';
-  toggle.textContent = body.hidden ? '展开' : '收起';
+  toggle.textContent = body.hidden ? '⌄' : '⌃'; toggle.setAttribute('aria-label', body.hidden ? '展开公告' : '收起公告'); toggle.title = body.hidden ? '展开公告' : '收起公告';
   toggle.setAttribute('aria-expanded', String(!body.hidden));
-  toggle.onclick = () => { body.hidden = !body.hidden; toggle.textContent = body.hidden ? '展开' : '收起'; toggle.setAttribute('aria-expanded', String(!body.hidden)); save(body.hidden ? 'collapsed' : 'open'); };
+  toggle.onclick = () => { body.hidden = !body.hidden; toggle.textContent = body.hidden ? '⌄' : '⌃'; toggle.setAttribute('aria-label', body.hidden ? '展开公告' : '收起公告'); toggle.title = body.hidden ? '展开公告' : '收起公告'; toggle.setAttribute('aria-expanded', String(!body.hidden)); save(body.hidden ? 'collapsed' : 'open'); };
   document.querySelector('#announcement-close').onclick = () => {
     box.hidden = true; save('closed');
     modal('公告已收好', '<p>以后可以从右上角信箱查看公告。登录后，点自己的昵称，在「功能引导」旁点「打开公告栏」，就能重新放回页面顶部。</p><button id="announcement-dismiss" class="primary">知道啦</button>');
