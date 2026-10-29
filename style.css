@@ -778,3 +778,107 @@ textarea {
 [hidden] {
   display: none !important;
 }
+.admin-mode .hero,
+.admin-mode .right-rail {
+  display: none;
+}
+.admin-mode .workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+.admin-workspace {
+  grid-column: 1/-1;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+.admin-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.admin-intro {
+  margin: 0;
+}
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.admin-table th {
+  background: #e7ebdc;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.admin-table th,
+.admin-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.7;
+}
+.admin-table small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+.admin-table button {
+  white-space: nowrap;
+  padding: 8px 12px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.form-grid .field {
+  margin-bottom: 4px;
+}
+.field input[type="checkbox"] {
+  display: inline;
+  width: auto;
+  margin-right: 7px;
+}
+.reward-panel {
+  background: #f4edd9;
+  border-color: #dccda5;
+}
+.phase-board {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.rank-list h3 {
+  margin: 15px 0 8px;
+  font-size: 16px;
+}
+.admin-workspace .search input {
+  width: 100%;
+}
+.admin-filters button {
+  border: 1px solid var(--line);
+}
+@media (max-width: 760px) {
+  nav {
+    flex-wrap: wrap;
+  }
+  nav button {
+    flex: 1 1 40%;
+  }
+  .admin-table {
+    min-width: 560px;
+  }
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .admin-actions .primary {
+    flex: 1 1 100%;
+  }
+}
