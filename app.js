@@ -5,7 +5,7 @@ function renderInbox() {
   if(!b){b=document.createElement('button');b.id='inbox';b.className='inbox-button';document.querySelector('header > div').prepend(b);b.onclick=openInbox;}
   b.hidden=!user;const unread=inboxOwner===user?.id?inboxRows.filter(n=>!n.read_at).length:0;
   b.classList.toggle('has-unread',unread>0);b.setAttribute('aria-label',`通知，${unread}条未读`);
-  b.innerHTML=`<span aria-hidden="true">✉</span>${unread?'<i aria-hidden="true"></i>':''}`;
+  b.innerHTML=`<span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span>${unread?'<i aria-hidden="true"></i>':''}`;
 }
 async function refreshInbox(){
  if(demo||!user){inboxRows=[];inboxOwner=null;renderInbox();return;}
