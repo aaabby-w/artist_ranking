@@ -421,6 +421,25 @@ assert.equal(one(`select count(*) from guild_task_preview where artist_credit is
 assert.equal(one(`select count(*) from guild_task_preview p join guild_tasks t using(id) where t.status='imported' and p.source_state='final' and coalesce(trim(t.source_record->>'artist'),'')<>'' and p.artist_credit is distinct from trim(t.source_record->>'artist');`), "0");
 ok("游客预览：有作品的任务都带署名（账号昵称或表格名字），没作品的任务不露名字");
 
+// ---------------------------------------------------------------- 012 unpublish
+console.log("场景：012 撤回发布");
+psql(file("supabase/012_unpublish_card.sql"));
+const up = tid("bind");
+psql(`update guild_tasks set source_record=source_record||'{"artist":"阿七"}' where id='${up}';`);
+psql(`select guild_activate_import('${up}',20,null);`, asA);
+psql(`select guild_unpublish_task('${up}');`, { ...asArtist, expectError: "只有负责人" });
+psql(`select guild_unpublish_task('${up}');`, asA);
+assert.equal(one(`select status||'/'||points||'/'||due_date||'/'||coalesce(artist_name,'-')||'/'||coalesce(assignee::text,'-') from guild_tasks where id='${up}';`), "imported/20/2026-11-15/-/-");
+ok("负责人可撤回发布：回到未发布，分值和 DDL 保留，画师名清空");
+psql(`select guild_unpublish_task('${rift}');`, { ...asA, expectError: "已交稿或已完成" });
+psql(`select guild_activate_import('${up}',20,null);`, asA);
+psql(`select guild_admin_submit('${up}','https://example.com/u.png','稿');`, asA);
+psql(`select guild_action('${up}','changes',null,null,'再改');`, asB);
+psql(`select guild_unpublish_task('${up}');`, { ...asA, expectError: "已有交稿记录" });
+const manual2 = one(`select guild_save_task(null,'手动二','角色立绘','要求',20);`, asA);
+psql(`select guild_unpublish_task('${manual2}');`, { ...asA, expectError: "请用删除" });
+ok("已交过稿、已完成、手动发布的任务都不能撤回发布");
+
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
 psql(`insert into vault.secrets(name, secret) values('kdocs_sync_trigger', repeat('x',40));`);

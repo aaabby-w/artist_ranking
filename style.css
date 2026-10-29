@@ -1123,3 +1123,27 @@ textarea {
   letter-spacing: 0.02em;
   margin-bottom: 2px;
 }
+.publish-note {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #eef1e2;
+  border: 1px solid #d3dbc0;
+}
+.publish-note b {
+  font-family: "Songti SC", serif;
+  font-size: 16px;
+}
+.publish-note p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #4d5c46;
+}
+.publish-more {
+  margin-top: 12px;
+}
+.publish-more summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}

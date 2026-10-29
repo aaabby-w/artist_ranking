@@ -19,7 +19,7 @@ const ctx = vm.createContext({ document, window: { GUILD_CONFIG: { supabaseUrl: 
 vm.runInContext(source + `
 globalThis.__t = {
   set(v) { ({ user, profile, view, filter, data } = v); adminFilter = v.adminFilter || "submitted"; },
-  render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask,
+  render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail,
 };`, ctx);
 const T = ctx.__t;
 
@@ -122,6 +122,21 @@ console.log("  ✓ 没有稿件时显示空状态");
 const reward = vm.runInContext(`rewardHTML()`, ctx);
 assert.doesNotMatch(reward, /稿酬|计件|额外感谢|统计期内提交/); assert.match(reward, /DDL/);
 console.log("  ✓ 奖励文案精简，不再出现“额外感谢，不是稿酬或计件单价”");
+
+// Publish form wording
+T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks } }); T.render();
+const finalForm = T.importDetail(tasks[2], true), namedForm = T.importDetail(tasks[1], true), openForm = T.importDetail(tasks[0], true);
+assert.match(finalForm, /这张已经交终稿了，不用发布/); assert.match(finalForm, /<details class="publish-more">[\s\S]*<form id="activate-import">[\s\S]*<\/form><\/details>/);
+assert.match(namedForm, /发布后进入「创作中」，由 画师甲 负责/); assert.match(namedForm, /发布到「创作中」/);
+assert.match(openForm, /发布后进入「待认领」/); assert.match(openForm, /发布到「待认领」/);
+for (const f of [finalForm, namedForm, openForm]) assert.doesNotMatch(f, /确认并转为任务/);
+console.log("  ✓ 发布按钮写明去向；已交终稿的卡默认不显示发布表单（折叠起来防误点）");
+assert.equal(T.canUnpublish(tasks[4]), true);   // published sheet card, open
+assert.equal(T.canUnpublish(tasks[9]), false);  // manual task → use delete
+assert.equal(T.canUnpublish(tasks[8]), false);  // done
+T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks, submissions: [{ id: "s", task_id: "5", author_id: "a1", url: "https://x", note: "", feedback: "", created_at: "2026-10-29T00:00:00Z" }] } });
+assert.equal(T.canUnpublish(tasks[4]), false);
+console.log("  ✓ 撤回发布只对已发布、还没交稿的金山表卡开放");
 
 // Admin with a blocked bulk removal
 T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all",

@@ -570,7 +570,7 @@ function detail(id) {
   const subs = data.submissions.filter((s) => s.task_id === id);
   modal(
     t.title,
-    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${admin && canDeleteTask(t) ? ' <button class="outline danger" id="delete-task">删除任务</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
+    `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${admin && canDeleteTask(t) ? ' <button class="outline danger" id="delete-task">删除任务</button>' : ""}${canUnpublish(t) ? ' <button class="outline" id="unpublish-task">撤回发布</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
       const path = uploadedImagePath(s.url);
       const link = path
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
@@ -603,6 +603,7 @@ function detail(id) {
   if (!demo && user) void showUploadedImages();
   $("#edit-task")?.addEventListener("click", () => newTask(t));
   $("#delete-task")?.addEventListener("click", () => deleteTask(t.id));
+  $("#unpublish-task")?.addEventListener("click", () => unpublishTask(t.id));
   $("#claim")?.addEventListener("click", () => {
     if (!demo && !user) {
       $("#dialog").close();
@@ -974,12 +975,12 @@ function importDetail(t, admin) {
   if (!admin)
     return (
       html +
-      '<p class="muted">负责人确认贡献分和负责画师后，这份记录会转成可操作的任务。</p>'
+      (sourceState(t) === "final" ? '<p class="muted">这张已交终稿，作品在金山表～</p>' : '<p class="muted">负责人发布后就能认领～</p>')
     );
   const members = data.profiles.filter((p) => p.active);
   return (
     html +
-    `<form id="activate-import"><h3>定分发布</h3><label class="field">贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写分数" value="${t.points ? Number(t.points) : ""}"></label><label class="field">负责画师<select name="assignee"><option value="">${s.artist ? `${esc(s.artist)}（按表格名字，还没注册也行）` : "开放给大家认领"}</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">${s.artist ? "画师注册后，在任务里点「绑定账号」就行，之前代交的稿都会跟过去。" : "选了账号就直接进入创作中。"}</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">确认并转为任务</button></form>`
+    `${publishIntro(t)}<form id="activate-import"><label class="field">贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写分数" value="${t.points ? Number(t.points) : ""}"></label><label class="field">负责画师<select name="assignee"><option value="">${s.artist ? `${esc(s.artist)}（按表格名字，还没注册也行）` : "开放给大家认领"}</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">${s.artist ? "选了账号就挂在账号下；用表格名字的话，等 ta 注册后在任务里点「绑定账号」。" : "选了账号就直接进入「创作中」。"}</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">${s.artist ? "发布到「创作中」" : "发布到「待认领」"}</button></form>${sourceState(t) === "final" ? "</details>" : ""}`
   );
 }
 function bindImportForm(t) {
@@ -1336,10 +1337,13 @@ function renderAdmin() {
     );
   $("#count").textContent = `${pending.length} 位画师待开通`;
   $("#list").innerHTML =
-    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。金山表里的卡先定分、核对画师账号再转为正式任务；已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? "定分发布" : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
+    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">发布 → 分配 / 认领 → 交稿 → 验收。金山表里的卡先定分、核对画师账号再转为正式任务；已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${t.status === "submitted" ? "验收" : t.status === "imported" ? (sourceState(t) === "final" ? "查看" : "发布") : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}${canUnpublish(t) ? `<button class="outline" data-unpublish-task="${esc(t.id)}">撤回发布</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div><section class="panel guide">${rewardHTML()}</section></div>`;
   $("#admin-create").onclick = () => newTask();
   document.querySelectorAll("[data-delete-task]").forEach(
     (b) => (b.onclick = () => deleteTask(b.dataset.deleteTask)),
+  );
+  document.querySelectorAll("[data-unpublish-task]").forEach(
+    (b) => (b.onclick = () => unpublishTask(b.dataset.unpublishTask)),
   );
   $("#show-score-guide").onclick = () =>
     modal("暂行任务分值", scoreGuideHTML());
@@ -1359,6 +1363,30 @@ function renderAdmin() {
     $("#admin-search").focus();
     $("#admin-search").setSelectionRange(pos, pos);
   };
+}
+// 发布 = 把金山表里的卡变成网站上的正式任务（可以认领、交稿、验收、记分）。
+function publishIntro(t) {
+  const s = t.source_record || {};
+  const state = sourceState(t);
+  if (state === "final")
+    return `<div class="publish-note"><b>这张已经交终稿了，不用发布</b><p>它会一直留在「待验收」和稿件展示里，署名 ${esc(s.artist || "待补")}。</p></div><details class="publish-more"><summary>要在网站上重新走一遍交稿和验收再发布（一般不需要）</summary><p class="muted">发布后它会移到「创作中」，要有人在网站上交稿后才会回到「待验收」。点错了可以「撤回发布」。</p>`;
+  return `<div class="publish-note"><b>发布这张卡</b><p>${s.artist ? `发布后进入「创作中」，由 ${esc(s.artist)} 负责；之后可以 ta 自己交稿，也可以负责人代交。` : "发布后进入「待认领」，画师登录后就能认领。"}点错了可以「撤回发布」。</p></div>`;
+}
+function canUnpublish(t) {
+  return profile?.role === "admin" && !!t.kdocs_card_id && ["open", "active", "changes"].includes(t.status) &&
+    !data.submissions.some((x) => x.task_id === t.id) && !data.awards.some((a) => a.task_id === t.id);
+}
+async function unpublishTask(id) {
+  const t = data.tasks.find((x) => x.id === id);
+  if (!t || !canUnpublish(t)) return toast("这份任务不能撤回，请刷新后再试");
+  if (!confirm(`撤回「${t.title}」的发布吗？它会回到原来的列表，分值和 DDL 不变。`)) return;
+  try {
+    await adminRPC("guild_unpublish_task", { p_task: id }, () => Object.assign(t, { status: "imported", assignee: null, artist_name: null }));
+    if ($("#dialog").open) $("#dialog").close();
+    toast("已撤回发布。");
+  } catch (e) {
+    error(e);
+  }
 }
 // 还没注册的画师：任务先挂在表格名字下，注册后由负责人一键绑定账号（该名字下的任务全部跟过去）。
 function artistBindHTML(t, admin) {
