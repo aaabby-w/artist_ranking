@@ -324,7 +324,7 @@ function render() {
     : user && !profile?.active
       ? "账号已登录，等待负责人开通成员权限。"
       : !user
-        ? "游客可以浏览公开任务；登录后可以认领和交稿。"
+        ? "您当前是游客身份；登录后可以认领和交稿。"
         : "欢迎来到会馆。按自己的时间认领，验收通过后自动记录贡献。";
   $("#new-task").hidden = profile?.role !== "admin";
   $("#stats").innerHTML = [
@@ -457,7 +457,7 @@ async function load() {
         awards: [],
         campaign: [],
       };
-      $("#connection").textContent = "游客浏览 · 登录后可认领";
+      $("#connection").textContent = "登录后可认领";
       render();
     } catch (e) {
       if (n !== seq) return;
