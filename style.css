@@ -1151,3 +1151,4 @@ textarea {
   border-color: #e3c4b2;
   background: #fbf1ea;
 }
+.inbox-button{position:relative;font-size:25px;margin-right:10px;padding:6px 10px}.inbox-button i{position:absolute;right:6px;top:5px;background:#c74b43;width:8px;height:8px;border-radius:50%;border:2px solid var(--paper)}.inbox-button.has-unread span{display:inline-block;animation:mail-sway 2.8s ease-in-out infinite}.reward-title strong{display:block;font-size:40px;color:#a16e32;line-height:1.4}.reward-panel,.admin-workspace>.guide{border:2px solid #c4ac71;background:#faf4df}@keyframes mail-sway{0%,70%,100%{transform:rotate(0)}75%{transform:rotate(-13deg)}80%{transform:rotate(13deg)}85%{transform:rotate(-9deg)}90%{transform:rotate(9deg)}}@media(prefers-reduced-motion:reduce){.inbox-button.has-unread span{animation:none}}

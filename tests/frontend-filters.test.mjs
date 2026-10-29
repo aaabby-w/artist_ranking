@@ -13,7 +13,7 @@ const el = (key) => {
   return els.get(key);
 };
 const document = { body: el("body"), addEventListener() {}, querySelector: (s) => el(s), querySelectorAll: () => [], createElement: () => el("#import-summary"), visibilityState: "visible" };
-const ctx = vm.createContext({ document, window: { GUILD_CONFIG: { supabaseUrl: "https://x.supabase.co", supabaseKey: "pk" } },
+const ctx = vm.createContext({ renderInbox() {}, document, window: { GUILD_CONFIG: { supabaseUrl: "https://x.supabase.co", supabaseKey: "pk" } },
   localStorage: { getItem: () => null, setItem() {} }, addEventListener() {}, setInterval() {}, setTimeout, clearTimeout,
   crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000000" }, console, Date, Intl, URL });
 vm.runInContext(source + `
@@ -105,7 +105,7 @@ const wall = el("#list").innerHTML;
 assert.equal(el("#count").textContent, "3 份稿件");
 assert.deepEqual([...wall.matchAll(/class="work (\w+)" data-task="(\d+)"/g)].map((m) => m[1] + ":" + m[2]), ["done:9", "submitted:8", "sheet:3"]);
 assert.match(wall, /data-work-path="00000000-0000-4000-8000-000000000001\/00000000-0000-4000-8000-000000000008\/00000000-0000-4000-8000-000000000009\.png"/);
-assert.match(wall, /终稿在金山表/); assert.match(wall, /✎ 画师丙 老师/); assert.match(wall, /✎ 画师乙 老师/); noSheetWord(wall);
+assert.match(wall, /终稿等待补传/); assert.match(wall, /✎ 画师丙 老师/); assert.match(wall, /✎ 画师乙 老师/); noSheetWord(wall);
 assert.equal((wall.match(/class="work-credit">✎ /g) || []).length, 3);
 console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组，每张都署名；上传图片走私有签名链接");
 T.set({ user: undefined, profile: null, view: "gallery", filter: "all", data: { ...base, profiles: [], submissions: [], tasks: guestRows } });

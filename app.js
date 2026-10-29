@@ -199,6 +199,7 @@ function updateTaskFilters() {
 }
 
 function render() {
+  renderInbox();
   profile = data.profiles.find((p) => p.id === user?.id);
   if (!demo && !user && view === "mine") view = "board";
   prepareAdmin();
@@ -375,6 +376,7 @@ async function load() {
     ]);
     if (n !== seq) return;
     data.sync = { state: state.data || null, run: run.data || null };
+    void refreshInbox();
     $("#connection").textContent = "● 已连接";
     render();
   } catch (e) {
@@ -568,6 +570,7 @@ function detail(id) {
   const own = t.assignee === user?.id,
     admin = profile?.role === "admin";
   const subs = data.submissions.filter((s) => s.task_id === id);
+  const historical = admin && (["submitted", "done"].includes(t.status) || (t.status === "imported" && sourceState(t) === "final" && !t.source_removed_at));
   modal(
     t.title,
     `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${admin && canDeleteTask(t) ? ' <button class="outline danger" id="delete-task">删除任务</button>' : ""}${canUnpublish(t) ? ' <button class="outline" id="unpublish-task">撤回发布</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
@@ -576,7 +579,7 @@ function detail(id) {
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
       return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${(own || admin) && ["active", "changes"].includes(t.status) ? `<form id="submit-form">${own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（PNG / JPG / WebP，最多 10 MB）<input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
+    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${historical || (own || admin) && ["active", "changes"].includes(t.status) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（PNG / JPG / WebP，最多 10 MB）<input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
   bindArtistActions(t);
@@ -649,7 +652,10 @@ function detail(id) {
         if (url === "#") throw Error("请上传图片，或填写有效的作品链接");
       }
       const note = String(f.get("note") || "").trim();
-      if (own) await act("submit", id, { url, note });
+      if (historical) {
+        await adminRPC("guild_attach_artwork", {p_task:id,p_url:url,p_note:note},()=>{});
+        $("#dialog").close(); toast("历史稿件已补传，验收状态保持原记录。");
+      } else if (own) await act("submit", id, { url, note });
       else {
         await adminRPC("guild_admin_submit", { p_task: id, p_url: url, p_note: note }, () => {
           data.submissions.push({ id: uid(), task_id: id, author_id: user.id, url, note: "负责人代交：" + note, feedback: "", created_at: now() });
@@ -726,7 +732,7 @@ function account() {
   }
   modal(
     "登录 / 加入会馆",
-    '<p class="muted">可以直接浏览公开任务；用邮箱验证码登录后即可参与认领和交稿。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
+    '<p class="muted">可以直接浏览公开任务；用邮箱验证码登录后即可参与认领和交稿。</p><form id="login"><label class="field">画师昵称<input name="artist_name" required maxlength="40" autocomplete="nickname" placeholder="尽量和原表署名一致，便于负责人核对"></label><label class="field">邮箱<input name="email" type="email" required></label><button class="primary">发送验证码</button></form>',
   );
   $("#login").onsubmit = async (e) => {
     e.preventDefault();
@@ -736,7 +742,7 @@ function account() {
     try {
       const r = await client.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: location.origin + location.pathname },
+        options: { emailRedirectTo: location.origin + location.pathname, data: {artist_name: String(new FormData(e.target).get("artist_name") || "").trim()} },
       });
       if (r.error) throw r.error;
       modal(
@@ -847,6 +853,7 @@ async function init() {
       "awards",
       "profiles",
       "campaign",
+      "notifications",
     ])
       channel.on(
         "postgres_changes",
@@ -996,7 +1003,7 @@ function importDetail(t, admin) {
   if (!admin)
     return (
       html +
-      (sourceState(t) === "final" ? '<p class="muted">这张已交终稿，作品在金山表～</p>' : '<p class="muted">负责人发布后就能认领～</p>')
+      (sourceState(t) === "final" ? '<p class="muted">这张已交终稿，作品等待补传～</p>' : '<p class="muted">负责人发布后就能认领～</p>')
     );
   const members = data.profiles.filter((p) => p.active);
   return (
@@ -1157,7 +1164,7 @@ function phaseRanking() {
 }
 function rewardHTML() {
   const c = campaign();
-  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p><h3>本期最高贡献奖励 ¥100</h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL 还在定～"}</p><p>这期贡献最多的小画师拿走 100 元，并列就一起分～</p><p>DDL 前交的稿，验收通过都算数。</p>`;
+  return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p><h3 class="reward-title">本期最高贡献奖励 <strong>¥100</strong></h3><p>${c.ends_at ? `${esc(c.name)}<br>DDL：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL 还在定～"}</p><p>本期贡献榜第一名奖励 100 元，并列第一均分。资金由自愿赞助提供，用于本期美术组专项感谢。</p><p>DDL 前交的稿，验收通过都算数。</p>`;
 }
 function phaseHTML() {
   const c = campaign(),
@@ -1282,7 +1289,7 @@ function workTile({ t, sub, kind }) {
     ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}" loading="lazy" onerror="this.parentNode.classList.add('broken')">`
     : sub
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
-      : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿在金山表" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
+      : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿等待补传" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
   const when = sub ? new Date(sub.created_at).toLocaleDateString("zh-CN") : "";
   return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info"><h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)} 老师` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
 }
@@ -1446,6 +1453,7 @@ async function deleteTask(id) {
   const t = data.tasks.find((x) => x.id === id);
   if (!t || !canDeleteTask(t)) return toast("这份任务不能删除，请刷新后再试");
   const subs = data.submissions.filter((s) => s.task_id === id);
+  const historical = admin && (["submitted", "done"].includes(t.status) || (t.status === "imported" && sourceState(t) === "final" && !t.source_removed_at));
   const images = subs.map((s) => uploadedImagePath(s.url)).filter(Boolean);
   if (!confirm(`确定删除「${t.title}」吗？${subs.length ? `\n它的 ${subs.length} 条交稿记录${images.length ? `和 ${images.length} 张上传图片` : ""}也会一起删除。` : ""}\n删除后无法恢复。`)) return;
   try {
