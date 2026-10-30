@@ -1708,3 +1708,59 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
   border-radius: 4px;
   padding: 0 5px;
 }
+
+/* 稿件展示：占满整行；瀑布流 手机 2 列，平板 / 电脑 3 列 */
+.gallery {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.work-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 18px;
+  row-gap: 18px;
+}
+.work-grid.masonry {
+  grid-auto-rows: 4px;
+  row-gap: 0;
+  align-items: start;
+}
+.work-grid.masonry .work {
+  margin-bottom: 18px;
+}
+.work-art.has-img {
+  aspect-ratio: auto;
+}
+.work-art.has-img:not(.loaded):not(.broken) {
+  aspect-ratio: 4 / 5;
+}
+.work-art.has-img img {
+  height: auto;
+}
+.work-art.broken {
+  aspect-ratio: 4 / 5;
+}
+.work.sheet .work-art:not(.has-img) {
+  aspect-ratio: 1 / 1;
+}
+@media (max-width: 760px) {
+  .work-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 10px;
+    row-gap: 10px;
+  }
+  .work-grid.masonry .work {
+    margin-bottom: 10px;
+  }
+  .work-info {
+    padding: 10px 12px 12px;
+  }
+  .work-info h3 {
+    font-size: 14px;
+  }
+  .work-info .work-credit {
+    font-size: 12px;
+  }
+  .work-info p {
+    font-size: 11px;
+  }
+}

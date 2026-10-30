@@ -1546,7 +1546,7 @@ function workTile({ t, sub, kind }) {
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
   const art = path
-    ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}" loading="lazy" onerror="this.parentNode.classList.add('broken')">`
+    ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}" loading="lazy" onload="this.parentNode.classList.add('loaded')" onerror="this.parentNode.classList.add('broken')">`
     : sub
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
       : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿等待补传" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
@@ -1572,7 +1572,23 @@ function renderGallery() {
         renderGallery();
       }),
   );
+  layoutWorkGrid();
   void loadWorkImages();
+}
+// 稿件展示瀑布流：网格按 4px 小行排列，每张卡按自己的实际高度占行数，
+// 所以图片原比例显示、阅读顺序仍是从左到右；图片加载或窗口变化时自动重排。
+let workObserver = null;
+function layoutWorkGrid() {
+  workObserver?.disconnect();
+  const grid = document.querySelector(".work-grid");
+  if (!grid || typeof ResizeObserver === "undefined") return;
+  const fit = (el) => {
+    const gap = parseFloat(getComputedStyle(el).marginBottom) || 0, unit = 4;
+    el.style.gridRowEnd = `span ${Math.max(1, Math.ceil((el.getBoundingClientRect().height + gap) / unit))}`;
+  };
+  workObserver = new ResizeObserver((entries) => entries.forEach((e) => fit(e.target)));
+  grid.querySelectorAll(".work").forEach((el) => { fit(el); workObserver.observe(el); });
+  grid.classList.add("masonry");
 }
 async function loadWorkImages() {
   const imgs = [...document.querySelectorAll("img[data-work-path]")];
