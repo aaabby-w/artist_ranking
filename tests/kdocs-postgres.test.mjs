@@ -526,5 +526,33 @@ psql(`select public.guild_kdocs_dispatch();`, { role: "authenticated", expectErr
 psql(`insert into cron.job(jobname,schedule,command) values('old-sync','* * * * *','select net.http_post(''https://x/functions/v1/kdocs-sync'')');`);
 psql(sched, { expectError: "已存在其他同步定时任务" }); ok("发现另一个同步定时任务时停止，不重复创建");
 
+// ---------------------------------------------------------------- 020 artwork backup to GitHub
+console.log("场景：020 作品备份到 GitHub");
+psql(file("supabase/020_artwork_github_backup.sql"));
+psql(file("supabase/020_artwork_github_backup.sql")); // re-run is harmless
+const STORE = "https://jcerhkfttppravatitdx.supabase.co/storage/v1/object/authenticated/guild-submissions/";
+psql(`insert into guild_submissions(task_id,author_id,url,note) values
+  ('${sa}','${ARTIST}','${STORE}${ARTIST}/${sa}/x.png','画好了'),
+  ('${sc}','${ADMIN_A}','${STORE}${ADMIN_A}/${sc}/y.png','负责人代交：阿七的稿'),
+  ('${sc}','${ADMIN_A}','https://pan.example.com/s/abc','网盘链接');`);
+const pend = () => psql(`select artist||'|'||storage_path from guild_artwork_pending(50) order by created_at, artist;`, { role: "service_role" });
+const before020 = pend();
+assert.match(before020, new RegExp(`画师丙\\|${ARTIST}/${sa}/x.png`));
+assert.match(before020, new RegExp(`未注册的阿七\\|${ADMIN_A}/${sc}/y.png`));
+assert.doesNotMatch(before020, /pan\.example/);
+ok("待备份列表：按任务的画师署名（负责人代交也算画师的），网盘链接不算");
+psql(`select guild_artwork_pending(5);`, { ...asA, expectError: "permission denied" });
+psql(`select guild_artwork_mark(gen_random_uuid(),'done');`, { ...asA, expectError: "permission denied" });
+psql(`select * from guild_artwork_pending(5);`, { role: "anon", expectError: "permission denied" });
+ok("只有服务端能取待备份列表、写备份结果；负责人和游客都不行");
+const subX = one(`select id from guild_submissions where url like '%/x.png';`);
+psql(`select guild_artwork_mark('${subX}','done','artworks/画师丙/a.png','C1');`, { role: "service_role" });
+assert.doesNotMatch(pend(), /x\.png/);
+const subY = one(`select id from guild_submissions where url like '%/y.png';`);
+for (let i = 0; i < 5; i++) psql(`select guild_artwork_mark('${subY}','failed','p',null,'STORAGE_DOWNLOAD');`, { role: "service_role" });
+assert.equal(pend(), "");
+assert.equal(one(`select status||'/'||attempts||'/'||error_code from guild_artwork_backups where submission_id='${subY}';`), "failed/5/STORAGE_DOWNLOAD");
+ok("备份成功的不再重复；失败的最多重试 5 次");
+
 execFileSync("dropdb", [DB]);
 console.log(`PASS: ${passed} checks`);

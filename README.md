@@ -30,6 +30,7 @@
    - 7.7 [Storage 上传路径](#77-storage-上传路径)
    - 7.8 [Realtime 实时更新](#78-realtime-实时更新)
    - 7.9 [登录（Supabase Auth）](#79-登录supabase-auth)
+   - 7.10 [作品备份到 GitHub（`artwork-backup`）](#710-作品备份到-githubartwork-backup)
 8. [金山文档同步详解](#8-金山文档同步详解)
 9. [本地开发与演示模式](#9-本地开发与演示模式)
 10. [部署](#10-部署)
@@ -118,7 +119,8 @@ flowchart LR
 ├── supabase/
 │   ├── schema.sql             新项目初始化（只在全新项目执行一次）
 │   ├── 002_…019_*.sql         增量迁移，按编号顺序执行（见第 13 节）
-│   ├── functions/kdocs-sync/  Edge Function：index.ts + normalize.mjs
+│   ├── functions/kdocs-sync/  Edge Function：金山同步
+│   ├── functions/artwork-backup/ Edge Function：作品备份到 GitHub
 │   ├── airscript/sync-cards.js 放在金山文档里的 AirScript 脚本
 │   ├── ops/                   只读巡检 SQL 等运维脚本
 │   └── templates/             Auth 邮件模板
@@ -446,6 +448,35 @@ https://jcerhkfttppravatitdx.supabase.co/storage/v1/object/authenticated/guild-s
 
 邮箱验证码登录：`signInWithOtp({ email, options: { data: { artist_name } } })` → `verifyOtp({ email, token, type: "email" })`。注册过的邮箱直接进原账号，不会新建。新账号 `active=false`，要负责人在「画师管理」里开通。
 
+### 7.10 作品备份到 GitHub（`artwork-backup`）
+
+网站上传的作品图（Storage）会被自动复制一份到 GitHub 仓库，按画师分文件夹：
+
+```
+artworks/<画师名>/<任务名>_<YYYYMMDD-HHMM 北京时间>_<交稿id前8位>.png
+```
+
+- 画师名取任务的画师（账号昵称 → 表格署名），负责人代交的稿也放在画师的文件夹里；没有画师的放 `未署名/`。
+- 只备份上传的图片；只填了网盘链接的交稿没有文件，不备份。
+- 每 10 分钟一次（pg_cron `guild-artwork-backup`，`4-59/10 * * * *`），每次最多 20 张，**一次提交**（Git Data API：blobs → tree → commit → 更新分支，`force: false`）。
+- 结果记在 `guild_artwork_backups`（`done` / `failed`、`repo_path`、`commit_sha`、`error_code`、`attempts`）；失败的下一轮重试，最多 5 次。负责人可读这张表。
+- 网站本身仍然只从 Storage 读图，GitHub 只是副本。
+
+```
+POST https://jcerhkfttppravatitdx.supabase.co/functions/v1/artwork-backup
+x-sync-secret: <SYNC_TRIGGER_SECRET>
+→ 200 { ok: true, copied, failed, commit } | { ok: true, copied: 0 }
+→ 500 { ok: false, error: "CONFIG" | "DATABASE_PENDING" | "GITHUB_REF" | "GITHUB_HTTP_<status>" | "GITHUB_COMMIT" }
+```
+
+| Secret | 说明 |
+| --- | --- |
+| `GITHUB_ARTWORK_TOKEN` | GitHub fine-grained token：只授权目标仓库，权限 Contents: Read and write |
+| `GITHUB_ARTWORK_REPO` | 目标仓库，默认 `aaabby-w/artist_ranking` |
+| `GITHUB_ARTWORK_BRANCH` / `GITHUB_ARTWORK_DIR` | 默认 `main` / `artworks` |
+
+数据库接口（只有 service role 能调）：`guild_artwork_pending(p_limit)` 返回待备份的 `submission_id, storage_path, artist, task_title, created_at`；`guild_artwork_mark(p_submission, p_status, p_path, p_commit, p_error)` 记录结果。
+
 ---
 
 ## 8. 金山文档同步详解
@@ -511,9 +542,10 @@ python3 -m http.server 4173
 | `node tests/frontend-filters.test.mjs` | 前端列表、筛选、发布表单、绑定状态、同步状态栏、稿件展示（vm + 假 DOM） |
 | `node tests/announcement.test.mjs` | 公告栏收起/关闭/开关同步；「DDL」后必须带「（截止日期）」 |
 | `node --experimental-strip-types tests/edge-function.test.mjs` | Edge Function 鉴权、错误码、不泄露敏感信息 |
+| `node --experimental-strip-types tests/artwork-backup.test.mjs` | 作品备份：路径命名、一次提交、失败重试、不配令牌不动作 |
 | `node tests/kdocs-normalize.mjs` | 快照校验与解析 |
 | `node tests/airscript-sync.cjs` | AirScript：>100 行、ID 稳定、重复拒绝 |
-| `node tests/kdocs-postgres.test.mjs [codex-normalize.mjs]` | **端到端**：在本地一次性 PostgreSQL 里搭出和生产一样的库，跑 002–019 全部迁移和同步/删除/恢复/拦截/并发/权限/验收/绑定/定时任务场景（85 项） |
+| `node tests/kdocs-postgres.test.mjs [codex-normalize.mjs]` | **端到端**：在本地一次性 PostgreSQL 里搭出和生产一样的库，跑 002–020 全部迁移和同步/删除/恢复/拦截/并发/权限/验收/绑定/定时任务场景（88 项） |
 
 端到端测试需要本地 PostgreSQL 16（`PGHOST/PGPORT/PGUSER` 环境变量），会自己建库、跑完删除。
 
@@ -578,6 +610,7 @@ update public.guild_kdocs_state set default_points = 20, default_due_date = '202
 | `017_bind_pending_source_artist.sql` | 还没发布的卡也能先绑定署名 |
 | `018_review_card_alias_award.sql` | 已绑定署名的终稿通过时，分数直接记到账号 |
 | `019_start_sheet_card.sql` | 表格已写画师的卡不用发布，直接交稿 |
+| `020_artwork_github_backup.sql` | 作品自动备份到 GitHub（按画师分文件夹）+ 定时任务 |
 
 ---
 
