@@ -1764,3 +1764,77 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
     font-size: 11px;
   }
 }
+
+/* 首页标题：先写错、划掉、再改 —— 像随手涂改的便签 */
+.hero-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 14px 0 12px;
+  letter-spacing: 0.02em;
+}
+.hero-title del {
+  position: relative;
+  text-decoration: none;
+  color: #9aa392;
+}
+.hero-title del::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 52%;
+  height: 0.16em;
+  background: #d0554b;
+  border-radius: 999px;
+  transform: rotate(-2.5deg);
+  opacity: 0.85;
+}
+.hero-try {
+  font-size: 0.5em;
+  line-height: 1.4;
+  transform: rotate(-1.5deg);
+  transform-origin: left center;
+}
+.hero-main {
+  font-size: 1em;
+  line-height: 1.35;
+}
+.hero-sign {
+  align-self: flex-end;
+  font-size: 0.48em;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.hero-sign del {
+  margin: 0 6px 0 2px;
+}
+.hero-sign ins {
+  display: inline-block;
+  text-decoration: none;
+  color: var(--ink);
+  transform: rotate(-3deg) translateY(-2px);
+  background: linear-gradient(transparent 58%, #f0d98a 58%, #f0d98a 88%, transparent 88%);
+  padding: 0 3px;
+}
+@media (max-width: 760px) {
+  .hero-title {
+    gap: 4px;
+  }
+  .hero-main {
+    font-size: 0.82em;
+  }
+  .hero-try {
+    font-size: 0.48em;
+  }
+  .hero-sign {
+    align-self: flex-start;
+    font-size: 0.46em;
+    padding-left: 1.2em;
+  }
+}
+.hero-title .nowrap {
+  white-space: nowrap;
+}
