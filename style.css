@@ -1370,3 +1370,43 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
   border-top: 1px solid currentColor;
   opacity: 0.6;
 }
+
+/* 作品上传：文件选择按钮 */
+.field input[type="file"] {
+  padding: 10px;
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.field input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: var(--green);
+  color: #fffdf7;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.field input[type="file"]::-webkit-file-upload-button {
+  margin-right: 12px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: var(--green);
+  color: #fffdf7;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.field input[type="file"]:hover::file-selector-button {
+  background: #36533f;
+}
+.field input[type="file"]:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
