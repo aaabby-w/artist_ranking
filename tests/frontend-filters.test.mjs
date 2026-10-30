@@ -19,7 +19,7 @@ const ctx = vm.createContext({ renderInbox() {}, document, window: { GUILD_CONFI
 vm.runInContext(source + `
 globalThis.__t = {
   set(v) { ({ user, profile, view, filter, data } = v); adminFilter = v.adminFilter || "submitted"; },
-  render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail,
+  render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail, artistBindHTML,
 };`, ctx);
 const T = ctx.__t;
 
@@ -132,10 +132,15 @@ T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: {
 const finalForm = T.importDetail(tasks[2], true), namedForm = T.importDetail(tasks[1], true), openForm = T.importDetail(tasks[0], true);
 assert.match(finalForm, /<form id="review-card">/); assert.match(finalForm, /data-review="approve">通过 · 放进稿件展示/); assert.match(finalForm, /data-review="reject">不通过/);
 assert.doesNotMatch(finalForm, /activate-import|发布/);
-assert.match(namedForm, /发布后进入「创作中」，由 画师甲 负责/); assert.match(namedForm, /发布到「创作中」/);
+assert.doesNotMatch(namedForm, /activate-import|发布|<select/); // 表格已写画师 = 创作中：不用发布，也不能改作者
 assert.match(openForm, /发布后进入「待认领」/); assert.match(openForm, /发布到「待认领」/);
 for (const f of [finalForm, namedForm, openForm]) assert.doesNotMatch(f, /确认并转为任务/);
-console.log("  ✓ 发布按钮写明去向；已交终稿的卡只有「通过 · 放进稿件展示」和「不通过」");
+console.log("  ✓ 未分配的卡写明发布去向；表格已写画师的卡没有发布/改作者；已交终稿的卡只有「通过」和「不通过」");
+T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks, aliases: [] } }); T.render();
+assert.match(T.artistBindHTML(tasks[1], true), /id="bind-artist"/);
+T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks, aliases: [{ artist_name: "画师甲", artist_id: "a1" }] } }); T.render();
+assert.match(T.artistBindHTML(tasks[1], true), /已绑定账号/); assert.doesNotMatch(T.artistBindHTML(tasks[1], true), /bind-artist|<select/);
+console.log("  ✓ 绑定之后不再显示绑定表单，改为「已绑定账号」");
 assert.equal(T.canUnpublish(tasks[4]), true);   // published sheet card, open
 assert.equal(T.canUnpublish(tasks[9]), false);  // manual task → use delete
 assert.equal(T.canUnpublish(tasks[8]), false);  // done

@@ -486,6 +486,34 @@ assert.equal(one(`select coalesce(artist_id::text,'-')||'/'||coalesce(artist_nam
 assert.equal(one(`select count(*) from guild_notifications where task_id='${fc}' and recipient='${ARTIST}' and title like '稿件验收通过%';`), "1");
 ok("已绑定署名的金山终稿「通过」→ 任务和 20 分都直接记到画师账号，并收到通知");
 
+console.log("场景：019 表格已有画师的卡直接交稿");
+psql(file("supabase/019_start_sheet_card.sql"));
+psql(file("supabase/019_start_sheet_card.sql"));
+const OTHER = "a0000000-0000-4000-8000-000000000004";
+psql(`alter table auth.users add column if not exists raw_user_meta_data jsonb; insert into auth.users(id) values('${OTHER}'); update guild_profiles set name='画师丁',active=true where id='${OTHER}';`);
+const [sa, sb, sc] = psql(`select id from guild_tasks where status='imported' and source_removed_at is null and source_record->>'system'<>'旧版参考' and coalesce(source_record->>'status','')<>'已递交终稿' order by id offset 1 limit 3;`).split("\n");
+psql(`update guild_tasks set source_record=source_record||'{"artist":"小绘"}' where id in ('${sa}','${sb}');
+  update guild_tasks set source_record=source_record||'{"artist":"未注册的阿七"}' where id='${sc}';`);
+psql(`select guild_start_sheet_card('${sa}');`, { role: "authenticated", uid: OTHER, expectError: "不在你名下" });
+psql(`select guild_start_sheet_card('${sa}');`, { role: "anon", expectError: "permission denied" });
+assert.equal(one(`select status from guild_tasks where id='${sa}';`), "imported"); ok("别人和游客不能动不在自己名下的卡");
+psql(`select guild_start_sheet_card('${sa}');`, asArtist);
+psql(`select guild_start_sheet_card('${sa}');`, asArtist); // retry is harmless
+assert.equal(one(`select status||'/'||assignee||'/'||coalesce(artist_name,'-')||'/'||points from guild_tasks where id='${sa}';`), `active/${ARTIST}/-/20`);
+psql(`select guild_action('${sa}','submit','https://example.com/sa.png','画好了');`, asArtist);
+assert.equal(one(`select status from guild_tasks where id='${sa}';`), "submitted");
+ok("已绑定署名的画师可以直接给自己名下的卡交稿：任务挂到账号，20 分，进入待验收");
+psql(`select guild_start_sheet_card('${sb}');`, asA);
+psql(`select guild_admin_submit('${sb}','https://example.com/sb.png','代交');`, asA);
+assert.equal(one(`select status||'/'||assignee from guild_tasks where id='${sb}';`), `submitted/${ARTIST}`);
+psql(`select guild_start_sheet_card('${sc}');`, asA);
+assert.equal(one(`select status||'/'||coalesce(assignee::text,'-')||'/'||artist_name from guild_tasks where id='${sc}';`), "active/-/未注册的阿七");
+ok("负责人可以直接代交；未注册的画师按表格名字挂着，作者不变");
+psql(`select guild_start_sheet_card('${fc}');`, { ...asA, expectError: "现在不能交稿" });
+const unassigned = one(`select id from guild_tasks where status='imported' and source_removed_at is null and coalesce(trim(source_record->>'artist'),'')='' limit 1;`);
+if (unassigned) psql(`select guild_start_sheet_card('${unassigned}');`, { ...asA, expectError: "现在不能交稿" });
+ok("已完成、没写画师的卡都不能这样开始");
+
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
 psql(`insert into vault.secrets(name, secret) values('kdocs_sync_trigger', repeat('x',40));`);

@@ -1684,3 +1684,6 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
   color: #93682c;
   font-size: 13px;
 }
+.bound-note b {
+  color: #3f6a4d;
+}
