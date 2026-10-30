@@ -2,7 +2,7 @@
 let inboxRows = [], inboxOwner = null, inboxBusy = false, tourOpen = false;
 function renderInbox() {
   let b=document.querySelector('#inbox');
-  if(!b){b=document.createElement('button');b.id='inbox';b.className='inbox-button';document.querySelector('header > div').prepend(b);b.onclick=()=>openInbox();}
+  if(!b){b=document.createElement('button');b.id='inbox';b.className='inbox-button';document.querySelector('header > div').prepend(b);b.onclick=()=>{if(!demo&&!user){account();document.querySelector('#dialog-title').textContent='登录后查看信箱';return;}openInbox();};}
   b.hidden=false;const unread=inboxOwner===user?.id?inboxRows.filter(n=>!n.read_at).length:0;
   b.classList.toggle('has-unread',unread>0);b.setAttribute('aria-label',`通知，${unread}条未读`);
   b.innerHTML=`<span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span>${unread?`<i aria-hidden="true">${unread>9?'9+':unread}</i>`:''}`;
