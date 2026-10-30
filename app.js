@@ -14,14 +14,24 @@ async function refreshInbox(){
  inboxRows=r.data||[];inboxOwner=owner;renderInbox();
  if(profile?.role==='artist'&&!profile.onboarding_done&&!tourOpen&&!document.querySelector('#dialog').open){tourOpen=true;showTour(0);}
 }
+// 信箱顶部固定显示本期奖励说明；通知列表在其下，最底下是“到底啦”。
+const INBOX_REWARD = `<section class="reward-panel inbox-reward"><p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p>
+<h3 class="reward-title">本期最高贡献奖励<strong>¥100</strong></h3>
+<p>第一期创作奖励<br>DDL（截止日期）：2027年1月1日</p>
+<p>元旦之前，本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。奖池来自某位好心人的自愿赞助，主要是想给这段时间投入比较多的小画师一点小奖励。（辛苦啦！）</p>
+<p>在 DDL（截止日期）前提交，并且最终通过的作品，都会计入本期贡献。</p>
+<p>我们想尽量赶上罗小黑 TV 更新的这波热度，在这段时间里多做一些能玩的项目，也让更多喜欢罗小黑的人发现我们。<span class="whisper">（万一被HMCH注意到了呢(ﾉ>ω<)ﾉ ）</span></p>
+<details class="reward-why">
+<summary>为什么要设 DDL（截止日期），还有这 100 元？</summary>
+<p>因为很多素材不是独立的。一份玩法可能要等好几位画师的素材才能继续做。如果没有一个大致的时间安排，开发这边也不好确定进度，任务就容易一直搁着,还会消耗大家的热情…… 所以每期会设一个 DDL（截止日期），方便大家安排时间，也方便开发组往下推进。</p>
+<p>100 元是好心人自愿赞助的，作为本期贡献榜第一名的奖励。另外，我们也会根据贡献记录整理最后的鸣谢名单。</p>
+<p>认领任务之前可以先看看自己的时间。如果最近有考试、工作，或者发现任务确实画不完，提前和负责人说一声就好。任务可以调整，也可以归还任务，不用有心理负担～</p>
+</details></section>`;
 function openInbox(){
- modal('你的信箱 ✉',inboxRows.length?inboxRows.map(n=>`<article class="submission"><b>${esc(n.title)}</b><p>${esc(n.body)}</p><small>${esc(new Date(n.created_at).toLocaleString('zh-CN'))}</small><div class="actions">${n.task_id?`<button data-inbox-task="${esc(n.task_id)}">查看任务</button>`:''}${!n.read_at?`<button data-read-note="${esc(n.id)}">标记已读</button>`:''}</div></article>`).join(''):'<p>还没有新消息，安心画画吧 (｡･ω･｡)</p>');
+ modal('你的信箱 ✉',inboxRows.length?inboxRows.map(n=>`<article class="submission"><b>${esc(n.title)}</b><p>${esc(n.body)}</p><small>${esc(new Date(n.created_at).toLocaleString('zh-CN'))}</small><div class="actions">${n.task_id?`<button data-inbox-task="${esc(n.task_id)}">查看任务</button>`:''}${!n.read_at?`<button data-read-note="${esc(n.id)}">标记已读</button>`:''}</div></article>`).join(''):'');
  const inboxBody = document.querySelector('#dialog-body');
- inboxBody.insertAdjacentHTML('afterbegin', '<article class="submission"><b>📌 美术组阶段公告</b><p>为什么有截止日期和本期 100 元奖励？公告随时可以回来查看。</p><button id="inbox-announcement" class="outline">查看公告</button></article>');
- document.querySelector('#inbox-announcement').onclick = () => {
-   modal('美术组阶段公告', document.querySelector('#announcement-body').innerHTML);
-   document.querySelector('#dialog-body [data-view="rank"]').onclick = () => { document.querySelector('#dialog').close(); view='rank'; render(); };
- };
+ inboxBody.insertAdjacentHTML('afterbegin', INBOX_REWARD);
+ inboxBody.insertAdjacentHTML('beforeend', '<p class="inbox-end"><span>到底啦，安心画画吧 (｡･ω･｡)</span></p>');
  document.querySelectorAll('[data-read-note]').forEach(b=>b.onclick=async()=>{if(inboxBusy)return;inboxBusy=true;try{const r=await client.rpc('guild_read_notification',{p_id:b.dataset.readNote});if(r.error)throw r.error;await refreshInbox();openInbox();}catch(e){error(e)}finally{inboxBusy=false}});
  document.querySelectorAll('[data-inbox-task]').forEach(b=>b.onclick=()=>detail(b.dataset.inboxTask));
 }
@@ -980,7 +990,7 @@ function initAnnouncement() {
   toggle.onclick = () => { body.hidden = !body.hidden; toggle.textContent = body.hidden ? '⌄' : '⌃'; toggle.setAttribute('aria-label', body.hidden ? '展开公告' : '收起公告'); toggle.title = body.hidden ? '展开公告' : '收起公告'; toggle.setAttribute('aria-expanded', String(!body.hidden)); save(body.hidden ? 'collapsed' : 'open'); };
   document.querySelector('#announcement-close').onclick = () => {
     box.hidden = true; save('closed'); syncAnnouncementSwitch();
-    modal('公告已收好', '<p>以后可以从右上角信箱查看公告。想放回页面顶部，登录后点自己的昵称，打开「首页公告栏」开关就行。</p><button id="announcement-dismiss" class="primary">知道啦</button>');
+    modal('公告已收好', '<p>以后可以从右上角信箱查看本期奖励说明。想放回页面顶部，登录后点自己的昵称，打开「首页公告栏」开关就行。</p><button id="announcement-dismiss" class="primary">知道啦</button>');
     document.querySelector('#announcement-dismiss').onclick = () => document.querySelector('#dialog').close();
   };
 }
