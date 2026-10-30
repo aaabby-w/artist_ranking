@@ -955,7 +955,7 @@ function account() {
       if (r.error) throw r.error;
       modal(
         "检查邮箱",
-        `<p class="muted">已向 ${esc(email)} 发送登录邮件。请输入邮件里的六位验证码。</p><form id="verify"><label class="field">验证码<input name="token" inputmode="numeric" required></label><button class="primary">登录</button></form>`,
+        `<p class="muted">已向 ${esc(email)} 发送登录邮件。请输入邮件里的验证码（8 位数字）。</p><form id="verify"><label class="field">验证码<input name="token" inputmode="numeric" autocomplete="one-time-code" required></label><button class="primary">登录</button></form>`,
       );
       $("#verify").onsubmit = async (ev) => {
         ev.preventDefault();
