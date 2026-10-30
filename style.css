@@ -806,10 +806,18 @@ textarea {
     overflow-wrap: anywhere;
   }
   .wf-col > .card p {
+    display: block;
     font-size: 11px;
     line-height: 1.7;
-    -webkit-line-clamp: 6;
+    -webkit-line-clamp: unset;
+    overflow: visible;
     overflow-wrap: anywhere;
+  }
+  .wf-col > .card .brief-field {
+    display: block;
+  }
+  .wf-col > .card .brief-field + .brief-field {
+    margin-top: 2px;
   }
   .wf-col > .card .meta {
     font-size: 9px;

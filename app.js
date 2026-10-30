@@ -421,11 +421,22 @@ function render() {
   $("#count").textContent = tasks.length + " 条记录";
   const cards = tasks.map(
     (t) =>
-      `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span>${syncBadge(t)}</div><h3>${esc(t.title)}</h3><p>${esc(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "DDL（截止日期） 未设 · 可与负责人协商"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
+      `<button class="card" data-task="${esc(t.id)}"><div class="card-top"><span class="tag">${esc(t.category)}</span><span class="tag ${esc(t.status)}">${esc(taskLabel(t))}</span>${syncBadge(t)}</div><h3>${esc(t.title)}</h3><p>${briefFields(t.brief)}</p><div class="meta">${t.due_date ? "期望交稿 " + esc(t.due_date) : "DDL（截止日期） 未设 · 可与负责人协商"}</div><div class="card-bottom"><span>○ ${esc(taskArtist(t))}</span><span class="points">✧ ${pointLabel(t)}　↗</span></div></button>`,
   );
   $("#list").innerHTML =
     (MOBILE.matches ? waterfall(cards, tasks) : cards.join("")) ||
     '<div class="empty">这里暂时没有任务。<br>可以换个筛选，或去公告栏认领喜欢的任务。</div>';
+}
+// 卡片介绍：金山同步的介绍按字段分行（原文已用换行分隔；没有换行时按字段标签断开）。
+// 每个字段一个 span，电脑端仍连成一段，手机端每个字段另起一行。只影响卡片显示。
+const BRIEF_LABELS = /\s+(?=(?:画面效果|角色|技能介绍|卡牌类型|机制简述|机制简介|效果 ?\/ ?数值|卡牌消耗（非贡献分）)：)/;
+function briefFields(brief) {
+  return String(brief || "")
+    .split(/\s*\n\s*/)
+    .flatMap((line) => line.split(BRIEF_LABELS))
+    .filter((f) => f.trim())
+    .map((f) => `<span class="brief-field">${esc(f)}</span>`)
+    .join(" ");
 }
 // 手机端两列瀑布流（小红书式）：按顺序把每张卡放进当前较矮的一列，阅读顺序仍是从上到下。
 const MOBILE = globalThis.matchMedia?.("(max-width: 760px)") || { matches: false };
@@ -438,7 +449,7 @@ function waterfall(cards, tasks) {
     const t = tasks[i],
       c = h[0] <= h[1] ? 0 : 1;
     cols[c].push(html);
-    h[c] += 9 + Math.ceil(String(t.title || "").length / 9) + Math.min(6, Math.ceil(String(t.brief || "").length / 13));
+    h[c] += 9 + Math.ceil(String(t.title || "").length / 9) + String(t.brief || "").split(/\s*\n\s*|\s+(?=(?:画面效果|角色|技能介绍|卡牌类型|机制简述|机制简介|效果 ?\/ ?数值|卡牌消耗（非贡献分）)：)/).reduce((n, f) => n + Math.max(1, Math.ceil(f.trim().length / 13)), 0);
   });
   return `<div class="waterfall">${cols.map((c) => `<div class="wf-col">${c.join("")}</div>`).join("")}</div>`;
 }
