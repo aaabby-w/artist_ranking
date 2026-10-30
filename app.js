@@ -716,32 +716,58 @@ function uploadedImagePath(url) {
     : null;
 }
 
-async function showUploadedImages() {
-  const links = [...$("#dialog").querySelectorAll("a[data-upload-path]")];
-  for (const link of links) {
-    const path = link.dataset.uploadPath;
-    try {
-      const { data: signed, error: signError } = await client.storage
-        .from(UPLOAD_BUCKET)
-        .createSignedUrl(path, 3600);
-      if (signError) throw signError;
-      if (!link.isConnected) continue;
-      link.href = signed.signedUrl;
-      link.textContent = "打开上传的图片 ↗";
-      const img = document.createElement("img");
-      img.src = signed.signedUrl;
-      img.alt = "画师上传的作品";
-      img.loading = "lazy";
-      img.style.cssText =
-        "display:block;width:auto;max-width:100%;max-height:420px;object-fit:contain;margin-top:12px;border-radius:12px;";
-      link.insertAdjacentElement("afterend", img);
-    } catch (e) {
-      if (link.isConnected) {
-        link.removeAttribute("href");
-        link.textContent = "图片暂时无法加载，请联系负责人";
-      }
-      console.error("Unable to load image", e);
+// Reveal only after decoding; timeout and a fresh signed URL on retry.
+function loadArtwork(img, getUrl) {
+  const box = img.parentElement;
+  box.classList.add('art-loading'); box.classList.remove('loaded', 'broken');
+  box.setAttribute('aria-busy', 'true');
+  box.querySelector('.art-loader')?.remove();
+  const loader = document.createElement('div');
+  loader.className = 'art-loader';
+  loader.innerHTML = '<span class="art-shapes" aria-hidden="true"><i></i><b></b></span><span class="art-loading-label" role="status">图片加载中…</span>';
+  box.append(loader);
+  let settled = false;
+  const finish = (ok) => {
+    if (settled) return; settled = true; clearTimeout(timer);
+    img.onload = img.onerror = null;
+    box.classList.remove('art-loading'); box.classList.add(ok ? 'loaded' : 'broken');
+    box.setAttribute('aria-busy', 'false');
+    if (ok) loader.remove();
+    else {
+      img.removeAttribute('src');
+      loader.innerHTML = '<span role="status">图片暂时没加载出来</span><span class="art-retry" role="button" tabindex="0">重新加载 ↻</span>';
+      const retry = loader.querySelector('.art-retry');
+      const run = (e) => { e.preventDefault(); e.stopPropagation(); loadArtwork(img, getUrl); };
+      retry.onclick = run;
+      retry.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') run(e); };
     }
+  };
+  const timer = setTimeout(() => finish(false), 30000);
+  img.onerror = () => finish(false);
+  img.onload = async () => {
+    try { await img.decode(); if (img.naturalWidth > 0) finish(true); else finish(false); }
+    catch { finish(false); }
+  };
+  Promise.resolve().then(getUrl).then(url => {
+    if (!settled && img.isConnected) { img.loading = 'eager'; img.src = url; }
+    else if (!img.isConnected) { settled = true; clearTimeout(timer); }
+  }).catch(() => finish(false));
+}
+async function artworkUrl(path) {
+  const {data, error} = await client.storage.from(UPLOAD_BUCKET).createSignedUrl(path, 3600);
+  if (error || !data?.signedUrl) throw new Error('Image unavailable');
+  return data.signedUrl;
+}
+async function showUploadedImages() {
+  for (const link of $("#dialog").querySelectorAll("a[data-upload-path]")) {
+    const box = document.createElement('div'); box.className = 'art-preview';
+    const img = document.createElement('img'); img.alt = '画师上传的作品';
+    box.append(img); link.insertAdjacentElement('afterend', box);
+    loadArtwork(img, async () => {
+      const url = await artworkUrl(link.dataset.uploadPath);
+      if (link.isConnected) { link.href = url; link.textContent = '打开上传的图片 ↗'; }
+      return url;
+    });
   }
 }
 
@@ -1547,7 +1573,7 @@ function workTile({ t, sub, kind }) {
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
   const art = path
-    ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}" loading="lazy" onload="this.parentNode.classList.add('loaded')" onerror="this.parentNode.classList.add('broken')">`
+    ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}">`
     : sub
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
       : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿等待补传" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
@@ -1592,22 +1618,10 @@ function layoutWorkGrid() {
   grid.classList.add("masonry");
 }
 async function loadWorkImages() {
-  const imgs = [...document.querySelectorAll("img[data-work-path]")];
-  if (demo || !user || !imgs.length) return;
-  const now = Date.now();
-  const need = [...new Set(imgs.map((i) => i.dataset.workPath))].filter((p) => !(signedWorks.get(p)?.exp > now));
-  if (need.length) {
-    const { data: signed, error: signError } = await client.storage.from(UPLOAD_BUCKET).createSignedUrls(need, 3600);
-    if (!signError)
-      for (const s of signed || []) if (s.signedUrl) signedWorks.set(s.path, { url: s.signedUrl, exp: now + 50 * 60 * 1000 });
-  }
-  for (const img of imgs) {
-    const c = signedWorks.get(img.dataset.workPath);
-    if (!img.isConnected) continue;
-    if (c) img.src = c.url;
-    else img.parentNode.classList.add("broken");
-  }
+  if (demo || !user) return;
+  document.querySelectorAll('img[data-work-path]').forEach(img => loadArtwork(img, () => artworkUrl(img.dataset.workPath)));
 }
+
 function renderAdmin() {
   const pending = data.profiles.filter((p) => !p.active && p.role === "artist");
   const inAdminFilter = (t, f) =>

@@ -1838,3 +1838,17 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 .hero-title .nowrap {
   white-space: nowrap;
 }
+
+/* Artwork loading uses CSS shapes, never the original reference GIF. */
+.art-preview { position: relative; margin-top: 12px; min-height: 180px; border-radius: 12px; background: #edf0e5; overflow: hidden; }
+.art-preview img { display: block; max-width: 100%; max-height: 420px; width: auto; margin: auto; object-fit: contain; }
+.art-loading > img, .broken > img { opacity: 0; }
+.art-loader { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; color: #637761; background: #edf0e5; font-size: 12px; z-index: 1; }
+.art-shapes { position: relative; width: 70px; height: 86px; display: block; }
+.art-shapes i { position: absolute; width: 17px; height: 17px; border-radius: 50%; background: #b29154; left: 27px; top: 0; animation: art-hop 1.4s ease-in-out infinite; }
+.art-shapes b { position: absolute; width: 33px; height: 33px; background: #526e59; left: 19px; bottom: 3px; border-radius: 3px; animation: art-turn 1.4s ease-in-out infinite; }
+.art-retry { cursor: pointer; padding: 10px 16px; border: 1px solid #9aaa8e; border-radius: 20px; background: #fffdf4; }
+.work-art.broken::after { content: none; }
+@keyframes art-hop { 0%,100% { transform: translateY(0); } 50% { transform: translateY(22px) scale(1.08,.92); } }
+@keyframes art-turn { 0%,100% { transform: rotate(-15deg); } 50% { transform: rotate(75deg); } }
+@media(prefers-reduced-motion:reduce) { .art-shapes i, .art-shapes b { animation: none; } }
