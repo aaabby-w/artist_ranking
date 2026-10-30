@@ -469,6 +469,23 @@ assert.equal(one(`select artist_id from guild_awards where task_id='${fa}';`), A
 assert.equal(one(`select assignee||'/'||coalesce(artist_name,'-') from guild_tasks where id='${fa}';`), `${ARTIST}/-`);
 ok(`绑定账号后挂着的分数（${faHeld} 笔）自动补记到账号上`);
 
+// ---------------------------------------------------------------- 014–017 (production) + 018
+console.log("场景：014–017 线上迁移 + 018 已绑定署名的终稿通过");
+for (const f of ["014_historical_upload_and_signup", "015_artist_notifications", "016_artist_aliases", "017_bind_pending_source_artist"])
+  psql(file(`supabase/${f}.sql`));
+const fc = one(`select id from guild_tasks where status='imported' and source_removed_at is null order by id limit 1;`);
+psql(`update guild_tasks set source_record=source_record||'{"status":"已递交终稿","artist":"小绘"}' where id='${fc}';`); // 金山表里这张卡登记为某画师已递交终稿
+const fcArtist = one(`select trim(source_record->>'artist') from guild_tasks where id='${fc}';`);
+psql(`select guild_bind_artist('${fcArtist}','${ARTIST}');`, asA); // 017: bind a name whose cards are still pending
+assert.equal(one(`select artist_id from guild_artist_aliases where artist_name='${fcArtist}';`), ARTIST);
+psql(file("supabase/018_review_card_alias_award.sql"));
+psql(file("supabase/018_review_card_alias_award.sql"));
+psql(`select guild_review_card('${fc}','approve');`, asA);
+assert.equal(one(`select status||'/'||assignee||'/'||coalesce(artist_name,'-') from guild_tasks where id='${fc}';`), `done/${ARTIST}/-`);
+assert.equal(one(`select coalesce(artist_id::text,'-')||'/'||coalesce(artist_name,'-')||'/'||points from guild_awards where task_id='${fc}';`), `${ARTIST}/-/20`);
+assert.equal(one(`select count(*) from guild_notifications where task_id='${fc}' and recipient='${ARTIST}' and title like '稿件验收通过%';`), "1");
+ok("已绑定署名的金山终稿「通过」→ 任务和 20 分都直接记到画师账号，并收到通知");
+
 // ---------------------------------------------------------------- schedule
 console.log("场景：定时任务");
 psql(`insert into vault.secrets(name, secret) values('kdocs_sync_trigger', repeat('x',40));`);
