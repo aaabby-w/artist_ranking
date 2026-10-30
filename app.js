@@ -1750,20 +1750,25 @@ async function adminRPC(name, args, demoAction) {
     await load();
   }
 }
+// 画师管理：已绑定金山表署名的账号名字后打勾，没绑定的标出来，未绑定的排在前面。
+function boundNames(id) {
+  return (data.aliases || []).filter((a) => a.artist_id === id).map((a) => a.artist_name);
+}
 function manageMembers() {
   modal(
     "画师管理",
-    `<p class="muted">画师可使用邮箱验证码登录并填写昵称。管理员可管理已注册的画师账号；原表署名不会自动建立账号。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>状态</th><th>操作</th></tr></thead><tbody>${[
+    `<p class="muted">画师可使用邮箱验证码登录并填写昵称。管理员可管理已注册的画师账号；原表署名不会自动建立账号。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号 · ✓ 已绑定署名</th><th>状态</th><th>操作</th></tr></thead><tbody>${[
       ...data.profiles,
     ]
       .sort(
         (a, b) =>
           Number(a.active) - Number(b.active) ||
+          Number(boundNames(a.id).length > 0) - Number(boundNames(b.id).length > 0) ||
           a.name.localeCompare(b.name, "zh-CN"),
       )
       .map(
         (p) =>
-          `<tr><td>${esc(p.name)}<small>${esc(p.id.slice(-6))}</small></td><td>${p.role === "admin" ? "负责人" : p.active ? "已开通" : "待开通"}</td><td>${p.role === "artist" ? `<button class="outline" data-member="${esc(p.id)}">管理</button>` : "—"}</td></tr>`,
+          `<tr><td>${esc(p.name)}${p.role === "artist" ? (boundNames(p.id).length ? ` <span class="bound-mark" title="已绑定金山表署名">✓</span>` : ' <span class="unbound-mark">未绑定</span>') : ""}<small>${esc(p.id.slice(-6))}${boundNames(p.id).length ? " · 表格署名：" + boundNames(p.id).map(esc).join("、") : ""}</small></td><td>${p.role === "admin" ? "负责人" : p.active ? "已开通" : "待开通"}</td><td>${p.role === "artist" ? `<button class="outline" data-member="${esc(p.id)}">管理</button>` : "—"}</td></tr>`,
       )
       .join("")}</tbody></table></div>`,
   );

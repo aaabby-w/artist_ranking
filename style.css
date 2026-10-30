@@ -1687,3 +1687,24 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 .bound-note b {
   color: #3f6a4d;
 }
+.bound-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #4f7a5e;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+.unbound-mark {
+  margin-left: 4px;
+  font-size: 10px;
+  color: #b8655a;
+  border: 1px solid #e3b7ae;
+  border-radius: 4px;
+  padding: 0 5px;
+}
