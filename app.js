@@ -1552,7 +1552,7 @@ function workTile({ t, sub, kind }) {
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
       : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿等待补传" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
   const when = sub ? new Date(sub.created_at).toLocaleDateString("zh-CN") : "";
-  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info"><h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)} 老师` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
+  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info"><h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)}` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
 }
 function renderGallery() {
   const all = galleryItems();
