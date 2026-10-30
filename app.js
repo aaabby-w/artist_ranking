@@ -2,10 +2,10 @@
 let inboxRows = [], inboxOwner = null, inboxBusy = false, tourOpen = false;
 function renderInbox() {
   let b=document.querySelector('#inbox');
-  if(!b){b=document.createElement('button');b.id='inbox';b.className='inbox-button';document.querySelector('header > div').prepend(b);b.onclick=openInbox;}
+  if(!b){b=document.createElement('button');b.id='inbox';b.className='inbox-button';document.querySelector('header > div').prepend(b);b.onclick=()=>openInbox();}
   b.hidden=false;const unread=inboxOwner===user?.id?inboxRows.filter(n=>!n.read_at).length:0;
   b.classList.toggle('has-unread',unread>0);b.setAttribute('aria-label',`通知，${unread}条未读`);
-  b.innerHTML=`<span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span>${unread?'<i aria-hidden="true"></i>':''}`;
+  b.innerHTML=`<span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span>${unread?`<i aria-hidden="true">${unread>9?'9+':unread}</i>`:''}`;
 }
 async function refreshInbox(){
  if(demo||!user){inboxRows=[];inboxOwner=null;renderInbox();return;}
@@ -14,26 +14,75 @@ async function refreshInbox(){
  inboxRows=r.data||[];inboxOwner=owner;renderInbox();
  if(profile?.role==='artist'&&!profile.onboarding_done&&!tourOpen&&!document.querySelector('#dialog').open){tourOpen=true;showTour(0);}
 }
-// 信箱顶部固定显示本期奖励说明；通知列表在其下，最底下是“到底啦”。
-const INBOX_REWARD = `<section class="reward-panel inbox-reward"><p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p>
-<h3 class="reward-title">本期最高贡献奖励<strong>¥100</strong></h3>
-<p>第一期创作奖励<br>DDL（截止日期）：2027年1月1日</p>
+// 信箱：邮件客户端式列表（置顶的本期奖励信 + 通知），点开进入阅读页，打开即标为已读。
+let inboxTab = "all";
+const REWARD_MAIL = {
+  id: "reward", pinned: true, from: "美术组", avatar: "绘", tone: "gold",
+  title: "本期最高贡献奖励 ¥100",
+  preview: "元旦之前，本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。",
+  html: `<p class="mail-hello">一点小心意 ( •̀ ω •́ )✧</p><div class="mail-reward"><span>第一期创作奖励</span><strong>¥100</strong><small>DDL（截止日期）：2027年1月1日</small></div>
 <p>元旦之前，本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。奖池来自某位好心人的自愿赞助，主要是想给这段时间投入比较多的小画师一点小奖励。（辛苦啦！）</p>
 <p>在 DDL（截止日期）前提交，并且最终通过的作品，都会计入本期贡献。</p>
 <p>我们想尽量赶上罗小黑 TV 更新的这波热度，在这段时间里多做一些能玩的项目，也让更多喜欢罗小黑的人发现我们。<span class="whisper">（万一被HMCH注意到了呢(ﾉ>ω<)ﾉ ）</span></p>
-<details class="reward-why">
+<details class="mail-why">
 <summary>为什么要设 DDL（截止日期），还有这 100 元？</summary>
 <p>因为很多素材不是独立的。一份玩法可能要等好几位画师的素材才能继续做。如果没有一个大致的时间安排，开发这边也不好确定进度，任务就容易一直搁着,还会消耗大家的热情…… 所以每期会设一个 DDL（截止日期），方便大家安排时间，也方便开发组往下推进。</p>
 <p>100 元是好心人自愿赞助的，作为本期贡献榜第一名的奖励。另外，我们也会根据贡献记录整理最后的鸣谢名单。</p>
 <p>认领任务之前可以先看看自己的时间。如果最近有考试、工作，或者发现任务确实画不完，提前和负责人说一声就好。任务可以调整，也可以归还任务，不用有心理负担～</p>
-</details></section>`;
-function openInbox(){
- modal('你的信箱 ✉',inboxRows.length?inboxRows.map(n=>`<article class="submission"><b>${esc(n.title)}</b><p>${esc(n.body)}</p><small>${esc(new Date(n.created_at).toLocaleString('zh-CN'))}</small><div class="actions">${n.task_id?`<button data-inbox-task="${esc(n.task_id)}">查看任务</button>`:''}${!n.read_at?`<button data-read-note="${esc(n.id)}">标记已读</button>`:''}</div></article>`).join(''):'');
- const inboxBody = document.querySelector('#dialog-body');
- inboxBody.insertAdjacentHTML('afterbegin', INBOX_REWARD);
- inboxBody.insertAdjacentHTML('beforeend', '<p class="inbox-end"><span>到底啦，安心画画吧 (｡･ω･｡)</span></p>');
- document.querySelectorAll('[data-read-note]').forEach(b=>b.onclick=async()=>{if(inboxBusy)return;inboxBusy=true;try{const r=await client.rpc('guild_read_notification',{p_id:b.dataset.readNote});if(r.error)throw r.error;await refreshInbox();openInbox();}catch(e){error(e)}finally{inboxBusy=false}});
- document.querySelectorAll('[data-inbox-task]').forEach(b=>b.onclick=()=>detail(b.dataset.inboxTask));
+</details>`,
+};
+function mailSender(n) {
+  const t = String(n.title || "");
+  if (t.includes("欢迎")) return { from: "众生绘卷", avatar: "众", tone: "green" };
+  if (t.includes("新任务")) return { from: "任务公告栏", avatar: "任", tone: "blue" };
+  if (t.includes("验收") || t.includes("修改")) return { from: "验收台", avatar: "验", tone: t.includes("修改") ? "rose" : "green" };
+  return { from: "美术组", avatar: "美", tone: "gold" };
+}
+function mailTime(iso) {
+  const d = new Date(iso), now = new Date();
+  if (isNaN(d)) return "";
+  const hm = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (d.toDateString() === now.toDateString()) return hm;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "昨天";
+  return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}月${d.getDate()}日` : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function inboxMails() {
+  return [REWARD_MAIL, ...inboxRows.map((n) => ({ ...mailSender(n), id: n.id, unread: !n.read_at, title: n.title, preview: n.body, time: mailTime(n.created_at), full: new Date(n.created_at).toLocaleString("zh-CN"), task: n.task_id, html: `<p>${esc(n.body)}</p>` }))];
+}
+function openInbox(mailId) {
+  const mails = inboxMails(), unread = mails.filter((m) => m.unread).length;
+  const open = mailId && mails.find((m) => m.id === mailId);
+  if (open) {
+    modal("你的信箱 ✉", `<article class="mail-read"><button class="mail-back" id="mail-back">‹ 收件箱</button>
+<h3>${esc(open.title)}</h3>
+<div class="mail-meta"><span class="mail-avatar tone-${open.tone}">${esc(open.avatar)}</span><div><b>${esc(open.from)}</b><small>发给 我${open.full ? " · " + esc(open.full) : " · 置顶"}</small></div></div>
+<div class="mail-body">${open.html}</div>
+${open.task ? `<div class="actions"><button class="primary" data-inbox-task="${esc(open.task)}">查看任务 →</button></div>` : ""}</article>`);
+    $("#mail-back").onclick = () => openInbox();
+    document.querySelectorAll("[data-inbox-task]").forEach((b) => (b.onclick = () => detail(b.dataset.inboxTask)));
+    if (open.unread && !inboxBusy) {
+      inboxBusy = true;
+      client.rpc("guild_read_notification", { p_id: open.id }).then(({ error: e }) => { if (!e) { const n = inboxRows.find((r) => r.id === open.id); if (n) n.read_at = new Date().toISOString(); renderInbox(); } }).finally(() => (inboxBusy = false));
+    }
+    return;
+  }
+  const shown = inboxTab === "unread" ? mails.filter((m) => m.unread) : mails;
+  modal("你的信箱 ✉", `<div class="mail">
+<div class="mail-bar"><div class="mail-tabs" role="tablist"><button role="tab" data-mail-tab="all" aria-selected="${inboxTab === "all"}">全部</button><button role="tab" data-mail-tab="unread" aria-selected="${inboxTab === "unread"}">未读${unread ? `<em>${unread}</em>` : ""}</button></div>${unread ? '<button class="mail-readall" id="mail-readall">全部标为已读</button>' : ""}</div>
+<ul class="mail-list">${shown.map((m) => `<li><button class="mail-row${m.unread ? " unread" : ""}${m.pinned ? " pinned" : ""}" data-mail="${esc(m.id)}"><span class="mail-avatar tone-${m.tone}">${esc(m.avatar)}</span><span class="mail-main"><span class="mail-top"><b>${esc(m.from)}</b>${m.pinned ? '<span class="mail-pin">置顶</span>' : ""}<time>${esc(m.time || "")}</time></span><span class="mail-subject">${esc(m.title)}</span><span class="mail-preview">${esc(m.preview)}</span></span></button></li>`).join("") || '<li class="mail-empty">没有未读消息 ✓</li>'}</ul>
+<p class="inbox-end"><span>到底啦，安心画画吧 (｡･ω･｡)</span></p></div>`);
+  document.querySelectorAll("[data-mail-tab]").forEach((b) => (b.onclick = () => { inboxTab = b.dataset.mailTab; openInbox(); }));
+  document.querySelectorAll("[data-mail]").forEach((b) => (b.onclick = () => openInbox(b.dataset.mail)));
+  const all = $("#mail-readall");
+  if (all) all.onclick = async () => {
+    if (inboxBusy) return;
+    inboxBusy = true;
+    try {
+      for (const n of inboxRows.filter((r) => !r.read_at)) { const r = await client.rpc("guild_read_notification", { p_id: n.id }); if (r.error) throw r.error; }
+      await refreshInbox(); openInbox();
+    } catch (e) { error(e); } finally { inboxBusy = false; }
+  };
 }
 let tourCleanup = null;
 function showTour(step) {

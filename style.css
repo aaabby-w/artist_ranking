@@ -1337,17 +1337,7 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
   }
 }
 
-/* 信箱：顶部奖励说明、悄悄话括号、底部“到底啦” */
-.inbox-reward {
-  border-radius: 10px;
-  padding: 18px 20px;
-  margin-bottom: 14px;
-}
-.inbox-reward p {
-  font-size: 13px;
-  line-height: 1.8;
-  margin: 8px 0;
-}
+/* 信箱：悄悄话括号、底部“到底啦” */
 .whisper {
   color: #b9b29c;
   font-size: 0.92em;
@@ -1409,4 +1399,288 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 .field input[type="file"]:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 2px;
+}
+
+/* 信封未读角标 */
+.inbox-button.has-unread {
+  color: var(--ink);
+  border-color: #d9605a;
+}
+.inbox-button i {
+  position: absolute;
+  margin: 0;
+  opacity: 1;
+  right: -6px;
+  top: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #e0453c;
+  border: 2px solid var(--paper);
+  color: #fff;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 2px 6px #e0453c66;
+}
+.inbox-button i::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid #e0453c;
+  animation: badge-ping 1.8s ease-out infinite;
+}
+@keyframes badge-ping {
+  0% { transform: scale(1); opacity: 0.7; }
+  80%, 100% { transform: scale(1.9); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inbox-button i::after { animation: none; }
+}
+
+/* 信箱：邮件客户端式列表 */
+.mail-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: -6px 0 10px;
+}
+.mail-tabs {
+  display: inline-flex;
+  background: #e9ecdf;
+  border-radius: 999px;
+  padding: 3px;
+}
+.mail-tabs button {
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mail-tabs button[aria-selected="true"] {
+  background: #fffdf7;
+  color: var(--ink);
+  box-shadow: 0 1px 3px #2c443a22;
+  font-weight: 600;
+}
+.mail-tabs em {
+  font-style: normal;
+  margin-left: 5px;
+  background: #e0453c;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+.mail-readall {
+  border: 0;
+  background: none;
+  color: var(--green);
+  font-size: 12px;
+  padding: 6px 2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #dfe3d3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fffdf7;
+}
+.mail-list li + li {
+  border-top: 1px solid #ebeee2;
+}
+.mail-row {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 14px 16px 14px 18px;
+  color: var(--ink);
+  transition: background 0.15s;
+}
+.mail-row:hover {
+  background: #f3f5ea;
+}
+.mail-row.pinned {
+  background: #fbf5e2;
+}
+.mail-row.pinned:hover {
+  background: #f7eecf;
+}
+.mail-row.unread::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: #e0453c;
+}
+.mail-avatar {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+.tone-gold { background: #b98a45; }
+.tone-green { background: #4f7a5e; }
+.tone-blue { background: #5b7f9a; }
+.tone-rose { background: #b8655a; }
+.mail-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mail-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.mail-top b {
+  font-weight: 500;
+}
+.mail-row.unread .mail-top b,
+.mail-row.unread .mail-subject {
+  font-weight: 700;
+}
+.mail-pin {
+  font-size: 10px;
+  color: #93682c;
+  background: #f1e2bb;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.mail-top time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mail-row.unread .mail-top time {
+  color: #c4473f;
+  font-weight: 600;
+}
+.mail-subject,
+.mail-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mail-subject {
+  font-size: 13px;
+}
+.mail-preview {
+  font-size: 12px;
+  color: var(--muted);
+}
+.mail-empty {
+  padding: 26px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 信箱：阅读页 */
+.mail-back {
+  border: 0;
+  background: none;
+  color: var(--green);
+  font-size: 13px;
+  padding: 4px 0;
+  margin: -8px 0 8px;
+}
+.mail-read h3 {
+  font-size: 18px;
+  line-height: 1.5;
+  margin: 4px 0 14px;
+}
+.mail-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e3e6d8;
+}
+.mail-meta b {
+  display: block;
+  font-size: 13px;
+}
+.mail-meta small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.mail-body {
+  padding-top: 6px;
+  font-size: 14px;
+  line-height: 1.85;
+}
+.mail-body p {
+  margin: 12px 0;
+}
+.mail-reward {
+  display: grid;
+  gap: 2px;
+  margin: 14px 0 6px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fbf3dc, #f3e4bd);
+  border: 1px solid #e3cf9b;
+}
+.mail-reward span {
+  font-size: 12px;
+  color: #93682c;
+}
+.mail-reward strong {
+  font-size: 34px;
+  line-height: 1.2;
+  color: #a16e32;
+}
+.mail-reward small {
+  font-size: 12px;
+  color: #7d6a4a;
+}
+.mail-why {
+  margin-top: 14px;
+  border-top: 1px dashed #d8dccb;
+  padding-top: 10px;
+}
+.mail-why summary {
+  cursor: pointer;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mail-why p {
+  font-size: 13px;
+  color: #4d6258;
+}
+.mail-body .mail-hello {
+  margin: 10px 0 0;
+  color: #93682c;
+  font-size: 13px;
 }
