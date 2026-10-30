@@ -615,6 +615,11 @@ async function act(action, id, extra = {}) {
           if (t.status !== "open") throw Error("这份任务已被认领");
           t.assignee = user.id;
           t.status = "active";
+        } else if (action === "withdraw") {
+          if (t.assignee !== user.id || t.status !== "submitted") throw Error("只能撤回自己的待验收交稿");
+          const sub = data.submissions.filter(s => s.task_id === id && !s.withdrawn_at).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0];
+          if (!sub || data.awards.some(a=>a.task_id===id)) throw Error("当前交稿不能撤回");
+          sub.withdrawn_at = now(); t.status = "active"; t.updated_at = now();
         } else if (action === "release") {
           if (
             t.assignee !== user.id ||
@@ -674,6 +679,7 @@ async function act(action, id, extra = {}) {
           p_due: extra.due_date,
           p_assignee: extra.assignee,
         });
+      else if (action === "withdraw") r = await client.rpc("guild_withdraw_submission", { p_task: id });
       else
         r = await client.rpc("guild_action", {
           p_task: id,
@@ -690,6 +696,7 @@ async function act(action, id, extra = {}) {
       {
         claim: "认领成功，期待你的作品。",
         release: "已归还任务，等你有空再来。",
+        withdraw: "已撤回交稿，可以修改后重新提交。",
         submit: "交稿成功，等待负责人验收。",
         approve: "已通过，放进稿件展示了～",
         changes: "已打回，理由已送达。",
@@ -803,8 +810,8 @@ function detail(id) {
       const link = path
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
-      return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（仅支持 PNG，最多 10 MB）<input name="image" type="file" accept="image/png,.png"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
+      return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
+    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（仅支持 PNG，最多 10 MB）<input name="image" type="file" accept="image/png,.png"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
   bindArtistActions(t);
@@ -857,6 +864,9 @@ function detail(id) {
       return;
     }
     act("claim", id);
+  });
+  $("#withdraw-submission")?.addEventListener("click", () => {
+    if (confirm("撤回这次交稿吗？任务将回到创作中，已上传图片和交稿记录保留。修改后需要重新提交验收。")) act("withdraw", id);
   });
   $("#release")?.addEventListener("click", () => act("release", id));
   $("#submit-form")?.addEventListener("submit", async (e) => {
