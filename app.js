@@ -1582,7 +1582,7 @@ function galleryItems() {
 function workTile({ t, sub, kind }) {
   const guest = !demo && !user;
   const path = sub && uploadedImagePath(sub.url);
-  const badge = { done: "已完成", submitted: "待验收", sheet: "已交终稿" }[kind];
+  const badge = { done: "已验收", submitted: "待验收", sheet: "待验收" }[kind];
   // 每张作品都署名：成员看账号昵称 / 表格名字，游客看预览里的署名。
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
@@ -1592,17 +1592,18 @@ function workTile({ t, sub, kind }) {
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
       : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿等待补传" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
   const when = sub ? new Date(sub.created_at).toLocaleDateString("zh-CN") : "";
-  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info"><h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)}` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
+  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info">${kind === "sheet" ? '<small class="tag">金山表登记</small>' : ""}<h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)}` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
 }
 function renderGallery() {
   const all = galleryItems();
-  const groups = [["all", "全部"], ["done", "已完成"], ["submitted", "待验收"], ["sheet", "已交终稿"]];
-  if (galleryFilter !== "all" && !all.some((i) => i.kind === galleryFilter)) galleryFilter = "all";
-  const shown = all.filter((i) => galleryFilter === "all" || i.kind === galleryFilter);
+  const groups = [["all", "全部"], ["done", "已验收"], ["submitted", "待验收"]];
+  const matches = (item, filter) => filter === "all" || (item.kind === "sheet" ? "submitted" : item.kind) === filter;
+  if (!all.some(item => matches(item, galleryFilter))) galleryFilter = "all";
+  const shown = all.filter(item => matches(item, galleryFilter));
   $("#count").textContent = `${all.length} 份稿件`;
   $("#list").innerHTML = `<div class="gallery"><div class="gallery-filters">${groups
     .map(([k, label]) => {
-      const n = k === "all" ? all.length : all.filter((i) => i.kind === k).length;
+      const n = k === "all" ? all.length : all.filter(item => matches(item, k)).length;
       return k === "all" || n ? `<button data-gallery-filter="${k}" class="${galleryFilter === k ? "selected" : ""}">${label}<span>${n}</span></button>` : "";
     })
     .join("")}</div>${shown.length ? `<div class="work-grid">${shown.map(workTile).join("")}</div>` : '<div class="empty">还没有交上来的稿件～<br>第一张会挂在这里。</div>'}${!demo && !user ? '<p class="muted gallery-note">登录后可以看作品原图 ✧</p>' : ""}</div>`;

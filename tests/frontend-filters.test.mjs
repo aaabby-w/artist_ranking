@@ -105,7 +105,7 @@ const wall = el("#list").innerHTML;
 assert.equal(el("#count").textContent, "3 份稿件");
 assert.deepEqual([...wall.matchAll(/class="work (\w+)" data-task="(\d+)"/g)].map((m) => m[1] + ":" + m[2]), ["done:9", "submitted:8", "sheet:3"]);
 assert.match(wall, /data-work-path="00000000-0000-4000-8000-000000000001\/00000000-0000-4000-8000-000000000008\/00000000-0000-4000-8000-000000000009\.png"/);
-assert.match(wall, /终稿等待补传/); assert.match(wall, /✎ 画师丙</); assert.match(wall, /✎ 画师乙</); noSheetWord(wall);
+assert.match(wall, /待验收<span>2/); assert.match(wall, /金山表登记/); assert.doesNotMatch(wall, /data-gallery-filter="sheet"/); assert.match(wall, /终稿等待补传/); assert.match(wall, /✎ 画师丙</); assert.match(wall, /✎ 画师乙</); noSheetWord(wall);
 assert.equal((wall.match(/class="work-credit">✎ /g) || []).length, 3);
 console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组，每张都署名；上传图片走私有签名链接");
 T.set({ user: undefined, profile: null, view: "gallery", filter: "all", data: { ...base, profiles: [], submissions: [], tasks: guestRows } });
