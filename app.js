@@ -294,7 +294,7 @@ function ranking(since) {
   return data.profiles
     .map((p) => ({
       ...p,
-      total: data.awards
+      total: [...data.awards, ...(data.ex_rewards || [])]
         .filter(
           (a) => a.artist_id === p.id && (!since || a.created_at >= since),
         )
@@ -455,9 +455,9 @@ function render() {
     $("#list").innerHTML =
       '<div class="rank-list">' +
       phaseHTML() +
-      '<h3>累计贡献</h3><p class="muted">同分并列 · 只算验收通过的稿件</p>' +
+      '<h3>累计贡献</h3><p class="muted">同分并列 · 包含验收贡献和 EX 特别奖励</p>' +
       people(ranking()) +
-      historySummary() +
+      exHistory() + historySummary() +
       "</div>";
     $("#count").textContent = "累计榜";
     return;
@@ -576,6 +576,9 @@ async function load() {
     const aliases = await client.from("guild_artist_aliases").select("artist_name,artist_id");
     if(n !== seq) return;
     data.aliases = aliases.data || [];
+    const ex = await client.from("guild_ex_rewards").select("*").order("created_at", {ascending:false});
+    if(n !== seq) return;
+    data.ex_rewards = ex.data || [];
     void refreshInbox();
     $("#connection").textContent = "● 已连接";
     render();
@@ -1136,6 +1139,7 @@ async function init() {
       "profiles",
       "campaign",
       "notifications",
+      "ex_rewards",
     ])
       channel.on(
         "postgres_changes",
@@ -1632,6 +1636,41 @@ async function loadWorkImages() {
   document.querySelectorAll('img[data-work-path]').forEach(img => loadArtwork(img, () => artworkUrl(img.dataset.workPath)));
 }
 
+function exHistory() {
+  const rows = data.ex_rewards || [];
+  if (!rows.length) return '';
+  return `<h3>EX 特别奖励</h3>${rows.map(r => {
+    const task = data.tasks.find(t => t.id === r.task_id);
+    const label = r.task_id ? `作品 · ${task?.title || '已验收作品'}` : '画师整体表现';
+    return `<article class="submission"><b>${esc(name(r.artist_id))} · +${Number(r.points)} EX</b><p>${esc(label)}｜${esc(r.reason)}</p><small>${esc(name(r.given_by))} · ${esc(beijing(r.created_at))}</small></article>`;
+  }).join('')}`;
+}
+function giveEx() {
+  const members = data.profiles.filter(p => p.active && p.id !== user.id);
+  const requestId = crypto.randomUUID();
+  modal('发 EX 特别奖励', `<form id="ex-form"><label class="field">奖励类型<select name="kind"><option value="artist">画师整体表现</option><option value="work">单件作品表现</option></select></label><label class="field">画师<select name="artist" required><option value="">选择画师</option>${members.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><label class="field" id="ex-work">已验收作品<select name="task"></select></label><label class="field">额外积分（1～20）<input type="number" name="points" required min="1" max="20" step="1" value="5"></label><label class="field">奖励理由（成员可见）<textarea name="reason" required maxlength="300" placeholder="比如：这套卡面交接清楚，连续三次交稿都能直接使用。"></textarea></label><p class="muted">EX 加入累计贡献，不计入本期 ¥100 奖金榜。同一作品只能获得一次作品奖励。</p><button class="primary">确认发放</button></form>`);
+  const form = $('#ex-form'), fields = form.elements;
+  function refreshWorks() {
+    const work = fields.kind.value === 'work';
+    $('#ex-work').hidden = !work; fields.task.required = work; fields.task.disabled = !work;
+    const tasks = data.tasks.filter(t => t.status === 'done' && t.assignee === fields.artist.value && !(data.ex_rewards || []).some(r => r.task_id === t.id));
+    fields.task.innerHTML = '<option value="">'+(tasks.length ? '选择作品' : '暂无可奖励的已验收作品')+'</option>'+tasks.map(t => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('');
+  }
+  fields.artist.onchange = fields.kind.onchange = refreshWorks; refreshWorks();
+  form.onsubmit = async e => {
+    e.preventDefault(); const button = form.querySelector('button'); if(button.disabled) return;
+    const artist = fields.artist.value, task = fields.kind.value === 'work' ? fields.task.value : null;
+    const points = Number(fields.points.value), reason = fields.reason.value.trim();
+    if(!reason) return toast('请写一句奖励理由。');
+    button.disabled = true;
+    try {
+      await adminRPC('guild_give_ex',{p_id:requestId,p_artist:artist,p_task:task,p_points:points,p_reason:reason},()=>{
+        (data.ex_rewards ||= []).unshift({id:requestId,artist_id:artist,task_id:task,points,reason,given_by:user.id,created_at:now()});
+      });
+      $('#dialog').close(); toast(`已给${name(artist)}加 ${points} EX 分。`);
+    } catch(e) { error(e); } finally { button.disabled = false; }
+  };
+}
 function renderAdmin() {
   const pending = data.profiles.filter((p) => !p.active && p.role === "artist");
   const inAdminFilter = (t, f) =>
@@ -1662,7 +1701,8 @@ function renderAdmin() {
     );
   $("#count").textContent = `${pending.length} 位画师待开通`;
   $("#list").innerHTML =
-    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">这里的任务已在公告栏展示。有负责画师的任务按「创作中」处理，可直接交稿，无需再次发布；尚未分配的任务在「设置 / 分配」中确认分值与人员。已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL（截止日期）</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL（截止日期）")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${taskList(t) === "submitted" ? "验收" : t.status === "imported" && taskList(t) === "open" ? "设置 / 分配" : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}${canUnpublish(t) ? `<button class="outline" data-unpublish-task="${esc(t.id)}">撤回发布</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div></div>`;
+    `<div class="admin-workspace"><div class="admin-actions"><button id="admin-create" class="primary">＋ 发布任务</button><button id="give-ex" class="outline">✧ 发 EX 特别奖励</button><button id="show-score-guide" class="outline">分值参考</button><button id="campaign-settings" class="outline">设置本期时间</button><button id="manage-members" class="outline">画师管理${pending.length ? " · " + pending.length + " 待开通" : ""}</button></div><section class="panel admin-intro"><h3>任务从这里安排。</h3><p class="muted">这里的任务已在公告栏展示。有负责画师的任务按「创作中」处理，可直接交稿，无需再次发布；尚未分配的任务在「设置 / 分配」中确认分值与人员。已开始创作的任务不能临时改分。</p></section><div class="filters admin-filters">${filters.map(([value, label]) => `<button data-admin-filter="${value}" class="${adminFilter === value ? "selected" : ""}">${label} ${data.tasks.filter((t) => inAdminFilter(t, value)).length}</button>`).join("")}</div><label class="search">⌕ <input id="admin-search" aria-label="搜索管理任务" placeholder="搜索任务、分类或画师" value="${esc(query)}"></label><div class="table-wrap"><table class="admin-table"><thead><tr><th>任务 / 分类</th><th>负责画师</th><th>状态</th><th>贡献分 / DDL（截止日期）</th><th>操作</th></tr></thead><tbody>${rows.map((t) => `<tr><td><b>${esc(t.title)}</b><small>${esc(t.category)}</small></td><td>${esc(taskArtist(t))}</td><td>${esc(taskLabel(t))}</td><td>${pointLabel(t)}<small>${esc(t.due_date || "未设 DDL（截止日期）")}</small></td><td><button class="outline" data-task="${esc(t.id)}">${taskList(t) === "submitted" ? "验收" : t.status === "imported" && taskList(t) === "open" ? "设置 / 分配" : "查看 / 处理"}</button>${canDeleteTask(t) ? `<button class="outline danger" data-delete-task="${esc(t.id)}">删除</button>` : ""}${canUnpublish(t) ? `<button class="outline" data-unpublish-task="${esc(t.id)}">撤回发布</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">这里暂时没有任务 (｡･ω･｡)</td></tr>'}</tbody></table></div></div>`;
+  $("#give-ex").onclick = giveEx;
   $("#admin-create").onclick = () => newTask();
   document.querySelectorAll("[data-delete-task]").forEach(
     (b) => (b.onclick = () => deleteTask(b.dataset.deleteTask)),

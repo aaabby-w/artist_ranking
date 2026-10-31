@@ -1,0 +1,24 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const {PGlite} = require(process.env.PGLITE_PATH || '@electric-sql/pglite');
+(async () => {
+  const db = await PGlite.create();
+  const source = file => fs.readFileSync(file,'utf8');
+  await db.exec(source('tests/sql/supabase-stub.sql').replace(/create publication[^;]+;/g,'').replace('create extension pgcrypto schema extensions;',''));
+  await db.exec(source('supabase/schema.sql').replace(/alter publication[^;]+;/g,''));
+  await db.exec(source('supabase/022_ex_rewards.sql').replace(/alter publication[^;]+;/g,''));
+  const admin = '00000000-0000-4000-8000-000000000001', artist = '00000000-0000-4000-8000-000000000002';
+  await db.query('insert into auth.users(id) values ($1),($2)',[admin,artist]);
+  await db.query("update guild_profiles set active=true,role=case when id=$1 then 'admin' else 'artist' end",[admin]);
+  const task=(await db.query("insert into guild_tasks(title,category,brief,points,status,assignee) values('test','test','test',20,'active',$1) returning id",[artist])).rows[0].id;
+  await db.exec('set role authenticated');
+  const login=id=>db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);
+  const give=(id,taskId,points=5)=>db.query("select guild_give_ex($1,$2,$3,$4,'画面完成度高')",[id,artist,taskId,points]);
+  const key=crypto.randomUUID(); await login(artist); await assert.rejects(()=>give(key,null)); await login(admin);
+  await give(key,null); await give(key,null); await assert.rejects(()=>give(crypto.randomUUID(),task));
+  await db.exec("reset role; update guild_tasks set status='done'; set role authenticated");
+  await give(crypto.randomUUID(),task); await assert.rejects(()=>give(crypto.randomUUID(),task)); await assert.rejects(()=>give(crypto.randomUUID(),null,0));
+  assert.equal((await db.query('select count(*)::int as n from guild_ex_rewards')).rows[0].n,2);
+  assert.equal((await db.query('select count(*)::int as n from guild_awards')).rows[0].n,0);
+  await db.close();console.log('PASS: both EX types, retry, permissions, approved work, base awards preserved');
+})().catch(e=>{console.error(e);process.exit(1)});
