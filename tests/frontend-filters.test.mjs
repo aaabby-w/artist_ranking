@@ -133,7 +133,7 @@ const finalForm = T.importDetail(tasks[2], true), namedForm = T.importDetail(tas
 assert.match(finalForm, /<form id="review-card">/); assert.match(finalForm, /data-review="approve">通过 · 放进稿件展示/); assert.match(finalForm, /data-review="reject">不通过/);
 assert.doesNotMatch(finalForm, /activate-import|发布/);
 assert.doesNotMatch(namedForm, /activate-import|发布|<select/); // 表格已写画师 = 创作中：不用发布，也不能改作者
-assert.match(openForm, /发布后进入「待认领」/); assert.match(openForm, /发布到「待认领」/);
+assert.match(openForm, /任务已在公告栏展示/); assert.match(openForm, /保存安排，开放认领/);
 for (const f of [finalForm, namedForm, openForm]) assert.doesNotMatch(f, /确认并转为任务/);
 console.log("  ✓ 未分配的卡写明发布去向；表格已写画师的卡没有发布/改作者；已交终稿的卡只有「通过」和「不通过」");
 T.set({ user: { id: "a1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks, aliases: [] } }); T.render();
@@ -160,3 +160,9 @@ T.render();
 assert.match(el("#import-summary").innerHTML, /同步失败.*SOURCE_HTTP_401.*令牌可能已过期/s);
 console.log("  ✓ 负责人：同步长时间失败时提示原因（令牌过期）");
 console.log("PASS: frontend filters");
+
+T.set({user:{id:"admin"},profile:{id:"admin",role:"admin",active:true},view:"admin",filter:"all",adminFilter:"active",data:{tasks,profiles:[{id:"admin",role:"admin",active:true}],submissions:[],awards:[]}});
+T.render();
+assert.doesNotMatch(el('#list').innerHTML, /data-task="[^"]+">发布<\/button>/);
+assert.match(el('#list').innerHTML, /查看 \/ 处理/);
+console.log('PASS: in-progress source tasks never ask to publish again');
