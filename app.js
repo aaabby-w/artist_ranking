@@ -1348,6 +1348,18 @@ function bindImportForm(t) {
 // Points describe an agreed deliverable, not drawing skill or a cash exchange rate.
 const SCORE_GUIDE = [
   {
+    name: "场景配色",
+    points: null,
+    unit: "一套地图色板，按范围约定分值",
+    brief: "从《罗小黑战记》TV 截图取色，整理草、泥、石、树、水和阴影的颜色，标上色值。\n参考截图：\n交付：一张色板，佳霖确认后再开画。",
+  },
+  {
+    name: "地形贴图",
+    points: null,
+    unit: "按贴图数量与复杂度约定分值",
+    brief: "要画的贴图及编号：\n统一色板：\n以 32×32 像素为主，按确认的色板绘制。需要平铺的贴图拼起来检查接缝。\n交付：每种贴图单独一张 PNG，文件名标清编号和内容。",
+  },
+  {
     name: "大场景",
     points: 320,
     unit: "完整大幅场景：构图、前中后景与细节",
