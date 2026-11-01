@@ -19,7 +19,7 @@ const ctx = vm.createContext({ renderInbox() {}, document, window: { GUILD_CONFI
 vm.runInContext(source + `
 globalThis.__t = {
   set(v) { ({ user, profile, view, filter, data } = v); adminFilter = v.adminFilter || "submitted"; },
-  render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail, artistBindHTML,
+  submissionAccessHint, belongsToMe, render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail, artistBindHTML,
 };`, ctx);
 const T = ctx.__t;
 
@@ -166,3 +166,16 @@ T.render();
 assert.doesNotMatch(el('#list').innerHTML, /data-task="[^"]+">发布<\/button>/);
 assert.match(el('#list').innerHTML, /查看 \/ 处理/);
 console.log('PASS: in-progress source tasks never ask to publish again');
+
+// Imported assigned tasks require verified account binding, never nickname matching.
+const assigned = tasks[1];
+T.set({user:{id:"u1"}, profile:base.profiles[0], view:"mine",filter:"all",data:{...base,tasks,aliases:[]}});
+assert.match(T.submissionAccessHint(assigned, false), /提交验收（暂不可用）/);
+assert.match(T.submissionAccessHint(assigned, false), /绑定账号/);
+assert.equal(T.belongsToMe(assigned), false);
+T.set({user:{id:"u1"}, profile:base.profiles[0], view:"mine",filter:"all",data:{...base,tasks,aliases:[{artist_id:"u1",artist_name:"画师甲"}]}});
+assert.equal(T.belongsToMe(assigned), true);
+assert.equal(T.submissionAccessHint(assigned, false), "");
+T.set({user:{id:"u1"}, profile:base.profiles[0], view:"mine",filter:"all",data:{...base,tasks,aliases:[],aliasesUnavailable:true}});
+assert.match(T.submissionAccessHint(assigned, false), /没加载成功/);
+console.log("  ✓ 未关联显示交稿原因，绑定本人后解除提示，关联读取失败可重试");

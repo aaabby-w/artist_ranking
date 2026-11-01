@@ -576,6 +576,7 @@ async function load() {
     const aliases = await client.from("guild_artist_aliases").select("artist_name,artist_id");
     if(n !== seq) return;
     data.aliases = aliases.data || [];
+    data.aliasesUnavailable = !!aliases.error;
     const ex = await client.from("guild_ex_rewards").select("*").order("created_at", {ascending:false});
     if(n !== seq) return;
     data.ex_rewards = ex.data || [];
@@ -814,7 +815,7 @@ function detail(id) {
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
       return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（仅支持 PNG，最多 10 MB）<input name="image" type="file" accept="image/png,.png"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
+    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（仅支持 PNG，最多 10 MB）<input name="image" type="file" accept="image/png,.png"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
   bindArtistActions(t);
@@ -1753,6 +1754,14 @@ async function unpublishTask(id) {
   }
 }
 // 还没注册的画师：任务先挂在表格名字下，注册后由负责人一键绑定账号（该名字下的任务全部跟过去）。
+function submissionAccessHint(t, admin) {
+  if (admin || !user || t.status !== "imported" || t.source_removed_at || sourceState(t) !== "assigned" || belongsToMe(t)) return "";
+  const name = esc(t.source_record?.artist || t.artist_name || "这位画师");
+  const reason = data.aliasesUnavailable
+    ? "账号关联信息没加载成功，请刷新后重试。"
+    : `这份任务登记在「${name}」名下，但还没有关联到你当前登录的账号。如果这是你的任务，请让负责人在这份任务底部选择你的注册账号，点「绑定账号」。同一署名只需绑定一次，刷新后即可交稿，无需重新发布。`;
+  return `<div class="submission"><b>还不能提交？先确认账号关联</b><p>${reason}</p><button class="primary" disabled>提交验收（暂不可用）</button></div>`;
+}
 function artistBindHTML(t, admin) {
   const sheetArtist = t.artist_name || (t.status === "imported" && !t.source_removed_at ? t.source_record?.artist : null);
   if (!sheetArtist) return "";
@@ -1763,7 +1772,7 @@ function artistBindHTML(t, admin) {
     return `<div class="submission bound-note"><b>✓ ${esc(sheetArtist)} 已绑定账号</b><p class="muted">${acct ? `${esc(acct.name)} · ${esc(acct.id.slice(-6))}。` : ""}表格里写着 ta 的卡和贡献，都会记到这个账号上。</p></div>`;
   }
   const sameName = members.find((p) => p.name.trim() === sheetArtist.trim());
-  return `<div class="submission"><b>${esc(sheetArtist)}  · 账号关联</b><p class="muted">${t.status === "submitted" ? "核对本人后连接账号，名下任务和暂存贡献将归入该账号。" : "核对一次署名，之后新任务可沿用关联；尚未发布的卡牌仍需负责人确认要求。"}</p>${admin ? `<div class="bind-row"><select id="bind-user"><option value="">选择 ta 注册后的账号</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}</option>`).join("")}</select><button class="primary" id="bind-artist">绑定账号</button>${["active", "changes"].includes(t.status) ? '<button class="outline" id="release-name">改回待认领</button>' : ""}</div>` : ""}</div>`;
+  return `<div class="submission"><b>${esc(sheetArtist)}  · 账号关联</b><p class="muted">${t.status === "submitted" ? "核对本人后连接账号，名下任务和暂存贡献将归入该账号。" : "由负责人核对表格署名与注册账号。绑定一次后，该署名的创作中任务即可交稿，无需再次发布。"}</p>${admin ? `<div class="bind-row"><select id="bind-user"><option value="">选择 ta 注册后的账号</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}</option>`).join("")}</select><button class="primary" id="bind-artist">绑定账号</button>${["active", "changes"].includes(t.status) ? '<button class="outline" id="release-name">改回待认领</button>' : ""}</div>` : ""}</div>`;
 }
 function bindArtistActions(t) {
   $("#bind-artist")?.addEventListener("click", async () => {
