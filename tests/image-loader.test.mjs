@@ -22,3 +22,13 @@ await new Promise(r=>setImmediate(r));
 assert(classes.has('broken'));assert.equal(typeof retry.onclick,'function');
 ctx.loadArtwork(img,()=>new Promise(()=>{}));timeout();assert(classes.has('broken'));
 console.log('PASS: decode gate, signing failure, retry control, timeout');
+
+// PSD detail attachments must only request a signed link, never create an img.
+const psdLink={dataset:{uploadPath:'a.psd'},isConnected:true};
+const psdCtx=vm.createContext({$:()=>({querySelectorAll:()=>[psdLink]}),artworkUrl:async()=> 'signed-psd',document:{createElement(){throw Error('PSD must not create image')}}});
+vm.runInContext(src.slice(src.indexOf('async function showUploadedImages('),src.indexOf('async function submissionFileType(')),psdCtx);
+await psdCtx.showUploadedImages();
+await new Promise(r=>setImmediate(r));
+assert.equal(psdLink.href,'signed-psd');
+assert.match(psdLink.textContent,/下载 PSD/);
+console.log('PASS: PSD detail skips image decoding');

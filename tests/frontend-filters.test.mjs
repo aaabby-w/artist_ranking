@@ -19,7 +19,7 @@ const ctx = vm.createContext({ renderInbox() {}, document, window: { GUILD_CONFI
 vm.runInContext(source + `
 globalThis.__t = {
   set(v) { ({ user, profile, view, filter, data } = v); adminFilter = v.adminFilter || "submitted"; },
-  submissionAccessHint, belongsToMe, render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail, artistBindHTML,
+  submissionFileType, workTile, submissionAccessHint, belongsToMe, render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail, artistBindHTML,
 };`, ctx);
 const T = ctx.__t;
 
@@ -179,3 +179,15 @@ assert.equal(T.submissionAccessHint(assigned, false), "");
 T.set({user:{id:"u1"}, profile:base.profiles[0], view:"mine",filter:"all",data:{...base,tasks,aliases:[],aliasesUnavailable:true}});
 assert.match(T.submissionAccessHint(assigned, false), /没加载成功/);
 console.log("  ✓ 未关联显示交稿原因，绑定本人后解除提示，关联读取失败可重试");
+
+const file = (name, bytes, type = "") => ({ name, type, size: bytes.length, slice: () => ({ arrayBuffer: async () => Uint8Array.from(bytes).buffer }) });
+for (const [name, bytes, ext] of [["图.JPG",[255,216,255],"jpg"],["图.jpeg",[255,216,255],"jpg"],["图.png",[137,80,78,71,13,10,26,10],"png"],["源.PSD",[56,66,80,83,0,1],"psd"]]) {
+  assert.equal((await T.submissionFileType(file(name,bytes))).ext, ext);
+}
+await assert.rejects(T.submissionFileType(file("fake.psd",[1,2,3])), /格式不符/);
+await assert.rejects(T.submissionFileType(file("x.gif",[1])), /只支持/);
+await assert.rejects(T.submissionFileType({...file("x.psd",[]),size:10485761}), /10 MB/);
+const psdTile = T.workTile({t:tasks[7],sub:{url:upload.replace(/png$/, "psd"),created_at:tasks[7].created_at},kind:"submitted"});
+assert.match(psdTile,/源文件 · 点开下载/);
+assert.doesNotMatch(psdTile, /<img/);
+console.log("PASS: JPG/PNG/PSD validation, size limit, and PSD download-only tile");

@@ -438,7 +438,7 @@ guild-submissions/<上传者 uid>/<任务 id>/<随机 uuid>.png
 https://jcerhkfttppravatitdx.supabase.co/storage/v1/object/authenticated/guild-submissions/<路径>
 ```
 
-显示时再换成签名 URL。目前只接受 `image/png`，≤ 10 MB（历史上传的 jpg / webp 仍可显示）。
+显示时再换成签名 URL。支持 JPG（含 JPEG）、PNG、PSD，单文件 ≤ 10 MB。图片可预览，PSD 通过私有签名链接下载，不在浏览器中预览；历史 WebP 仍可显示。存储桶已核查为不限制 MIME、上限 50 MB，前端保留 10 MB 限制。
 
 ### 7.8 Realtime 实时更新
 

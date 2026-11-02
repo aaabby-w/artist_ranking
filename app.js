@@ -722,7 +722,7 @@ function uploadedImagePath(url) {
     `/storage/v1/object/authenticated/${UPLOAD_BUCKET}/`;
   if (!url.startsWith(prefix)) return null;
   const path = url.slice(prefix.length);
-  return /^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(png|jpg|webp)$/.test(path)
+  return /^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(png|jpg|webp|psd)$/.test(path)
     ? path
     : null;
 }
@@ -771,30 +771,53 @@ async function artworkUrl(path) {
 }
 async function showUploadedImages() {
   for (const link of $("#dialog").querySelectorAll("a[data-upload-path]")) {
+    if (link.dataset.uploadPath.endsWith('.psd')) {
+      const prepare = async () => {
+        try {
+          link.textContent = '正在准备 PSD 下载…';
+          const url = await artworkUrl(link.dataset.uploadPath);
+          if (link.isConnected) { link.href = url; link.textContent = '下载 PSD 源文件 ↗'; link.onclick = null; }
+        } catch {
+          link.textContent = '下载链接加载失败，点此重试';
+          link.onclick = (e) => { e.preventDefault(); void prepare(); };
+        }
+      };
+      void prepare();
+      continue;
+    }
     const box = document.createElement('div'); box.className = 'art-preview';
     const img = document.createElement('img'); img.alt = '画师上传的作品';
     box.append(img); link.insertAdjacentElement('afterend', box);
     loadArtwork(img, async () => {
       const url = await artworkUrl(link.dataset.uploadPath);
-      if (link.isConnected) { link.href = url; link.textContent = '打开上传的图片 ↗'; }
+      if (link.isConnected) { link.href = url; link.textContent = link.dataset.uploadPath.endsWith('.psd') ? '下载 PSD 源文件 ↗' : '打开上传的图片 ↗'; }
       return url;
     });
   }
 }
 
+async function submissionFileType(file) {
+  if (file.size <= 0 || file.size > MAX_IMAGE_BYTES) throw Error("文件必须小于或等于 10 MB");
+  const suffix = String(file.name || "").split(".").pop().toLowerCase();
+  const ext = suffix === "jpeg" ? "jpg" : suffix;
+  const types = { jpg: "image/jpeg", png: "image/png", psd: "image/vnd.adobe.photoshop" };
+  if (!types[ext]) throw Error("只支持 JPG、PNG、PSD 文件");
+  const bytes = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  const matches = (signature) => signature.every((v, i) => bytes[i] === v);
+  const valid = ext === "jpg" ? matches([255,216,255])
+    : ext === "png" ? matches([137,80,78,71,13,10,26,10])
+    : matches([56,66,80,83,0,1]);
+  if (!valid) throw Error("文件内容与格式不符，请重新导出 JPG、PNG 或 PSD 文件");
+  return { ext, contentType: types[ext] };
+}
+
 async function uploadSubmissionImage(task, file) {
   if (!user || !profile?.active) throw Error("请先登录会馆再上传图片");
-  const extensions = {
-    "image/png": "png",
-  };
-  const ext = extensions[file.type];
-  if (!ext) throw Error("只支持 PNG 图片");
-  if (file.size <= 0 || file.size > MAX_IMAGE_BYTES)
-    throw Error("图片必须小于或等于 10 MB");
+  const { ext, contentType } = await submissionFileType(file);
   const path = `${user.id}/${task.id}/${crypto.randomUUID()}.${ext}`;
   const { error: uploadError } = await client.storage
     .from(UPLOAD_BUCKET)
-    .upload(path, file, { contentType: file.type, upsert: false });
+    .upload(path, file, { contentType, upsert: false });
   if (uploadError) throw uploadError;
   return `${cfg.supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/authenticated/${UPLOAD_BUCKET}/${path}`;
 }
@@ -812,10 +835,10 @@ function detail(id) {
     `<span class="tag">${esc(t.category)} · ${esc(taskLabel(t))}</span><p class="detail-copy">${esc(t.brief)}</p><p class="detail-meta">${pointLabel(t)} · ${esc(taskArtist(t))}<br>${t.due_date ? "期望交稿 " + esc(t.due_date) : "交稿时间可与负责人协商"}</p>${admin && t.status === "open" ? '<button class="outline" id="edit-task">编辑 / 分配任务</button>' : ""}${admin && canDeleteTask(t) ? ' <button class="outline danger" id="delete-task">删除任务</button>' : ""}${canUnpublish(t) ? ' <button class="outline" id="unpublish-task">撤回发布</button>' : ""}${importDetail(t, admin)}${subs.map((s) => {
       const path = uploadedImagePath(s.url);
       const link = path
-        ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在加载上传的图片…</a>`
+        ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在准备作品链接…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
       return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品图片（仅支持 PNG，最多 10 MB）<input name="image" type="file" accept="image/png,.png"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
+    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品（JPG、PNG、PSD，最多 10 MB；PSD 仅供下载）<input name="image" type="file" accept=".jpg,.jpeg,.png,.psd,image/jpeg,image/png,image/vnd.adobe.photoshop"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
   bindArtistActions(t);
@@ -1599,7 +1622,9 @@ function workTile({ t, sub, kind }) {
   // 每张作品都署名：成员看账号昵称 / 表格名字，游客看预览里的署名。
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
-  const art = path
+  const art = path?.endsWith(".psd")
+    ? `<div class="work-ph"><span class="work-ph-mark">PSD</span><em>源文件 · 点开下载</em></div>`
+    : path
     ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}">`
     : sub
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
