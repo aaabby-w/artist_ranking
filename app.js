@@ -1633,7 +1633,11 @@ function galleryItems() {
 }
 function workTile({ t, sub, kind }) {
   const guest = !demo && !user;
-  const path = sub && uploadedImagePath(sub.url);
+  // A supplemental PSD must not replace an existing image cover.
+  const cover = sub && uploadedImagePath(sub.url)?.endsWith(".psd")
+    ? data.submissions.filter(s => s.task_id === t.id && !s.withdrawn_at && /\.(png|jpg|webp)$/.test(uploadedImagePath(s.url) || "")).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0] || sub
+    : sub;
+  const path = cover && uploadedImagePath(cover.url);
   const badge = { done: "已验收", submitted: "待验收", sheet: "待验收" }[kind];
   // 每张作品都署名：成员看账号昵称 / 表格名字，游客看预览里的署名。
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
