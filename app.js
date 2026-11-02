@@ -278,12 +278,18 @@ function seed() {
     ],
   };
 }
-function toast(t) {
-  $("#toast").textContent = t;
-  $("#toast").hidden = false;
+function toast(t, isError = false) {
+  const notice = $("#toast");
+  // Native modal dialogs occupy the top layer; z-index alone cannot cover them.
+  const host = $("#dialog").open ? $("#dialog") : document.body;
+  host.appendChild(notice);
+  notice.textContent = t;
+  notice.classList.toggle("toast-error", isError);
+  notice.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => ($("#toast").hidden = true), 3500);
+  toast.timer = setTimeout(() => (notice.hidden = true), isError ? 8000 : 3500);
 }
+
 function store() {
   localStorage.setItem(DEMO, JSON.stringify(data));
 }
@@ -518,7 +524,7 @@ function modal(title, body) {
   if (!$("#dialog").open) $("#dialog").showModal();
 }
 function error(e) {
-  toast(e.message || "暂时无法完成，请重试。");
+  toast(e.message || "暂时无法完成，请重试。", true);
 }
 async function load() {
   if (demo) {
@@ -799,15 +805,18 @@ async function showUploadedImages() {
 async function submissionFileType(file) {
   if (file.size <= 0 || file.size > MAX_IMAGE_BYTES) throw Error("文件不能为空，单文件最多 50 MB");
   const suffix = String(file.name || "").split(".").pop().toLowerCase();
-  const ext = suffix === "jpeg" ? "jpg" : suffix;
+  const namedExt = suffix === "jpeg" ? "jpg" : suffix;
   const types = { jpg: "image/jpeg", png: "image/png", psd: "image/vnd.adobe.photoshop" };
-  if (!types[ext]) throw Error("只支持 JPG、PNG、PSD 文件");
+  if (!types[namedExt]) throw Error("只支持 JPG、PNG、PSD 文件");
   const bytes = new Uint8Array(await file.slice(0, 8).arrayBuffer());
   const matches = (signature) => signature.every((v, i) => bytes[i] === v);
-  const valid = ext === "jpg" ? matches([255,216,255])
-    : ext === "png" ? matches([137,80,78,71,13,10,26,10])
-    : matches([56,66,80,83,0,1]);
-  if (!valid) throw Error("文件内容与格式不符，请重新导出 JPG、PNG 或 PSD 文件");
+  const ext = matches([255,216,255]) ? "jpg"
+    : matches([137,80,78,71,13,10,26,10]) ? "png"
+    : matches([56,66,80,83,0,1]) ? "psd" : null;
+  if (!ext) {
+    if (matches([56,66,80,83,0,2])) throw Error("这是 PSB 大型文档，请在 Photoshop 中另存为 PSD 后上传；只改后缀不行。");
+    throw Error("无法识别为 JPG、PNG 或 PSD。请从绘画软件重新导出，别只改文件后缀；如果仍失败，请把原文件交给负责人检查。");
+  }
   return { ext, contentType: types[ext] };
 }
 
@@ -905,6 +914,7 @@ function detail(id) {
     const file = form.elements.image.files[0];
     let url = String(f.get("url") || "").trim();
     button.disabled = true;
+    form.querySelector(".upload-feedback")?.remove();
     try {
       // 表格已写画师的卡：交稿前先转成正式的创作中任务（作者按表格，分值和截止日期用默认）。
       if (sheetCard && !demo) {
@@ -934,6 +944,12 @@ function detail(id) {
         toast("已代交，进入待验收～");
       }
     } catch (e) {
+      const feedback = document.createElement("p");
+      feedback.className = "upload-feedback";
+      feedback.setAttribute("role", "alert");
+      feedback.textContent = e.message || "上传未成功，请重试。";
+      button.before(feedback);
+      feedback.scrollIntoView({ block: "nearest", behavior: "smooth" });
       error(e);
     } finally {
       if (button.isConnected) button.disabled = false;

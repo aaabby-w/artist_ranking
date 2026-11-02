@@ -1852,3 +1852,6 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 @keyframes art-hop { 0%,100% { transform: translateY(0); } 50% { transform: translateY(22px) scale(1.08,.92); } }
 @keyframes art-turn { 0%,100% { transform: rotate(-15deg); } 50% { transform: rotate(75deg); } }
 @media(prefers-reduced-motion:reduce) { .art-shapes i, .art-shapes b { animation: none; } }
+
+#toast.toast-error { background: #813f32; border-color: #bd8577; }
+.upload-feedback { padding: 12px 14px; border: 1px solid #bd8577; border-radius: 8px; background: #f9e9e1; color: #813f32; line-height: 1.6; overflow-wrap: anywhere; }

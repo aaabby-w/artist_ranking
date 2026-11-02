@@ -184,7 +184,7 @@ const file = (name, bytes, type = "") => ({ name, type, size: bytes.length, slic
 for (const [name, bytes, ext] of [["图.JPG",[255,216,255],"jpg"],["图.jpeg",[255,216,255],"jpg"],["图.png",[137,80,78,71,13,10,26,10],"png"],["源.PSD",[56,66,80,83,0,1],"psd"]]) {
   assert.equal((await T.submissionFileType(file(name,bytes))).ext, ext);
 }
-await assert.rejects(T.submissionFileType(file("fake.psd",[1,2,3])), /格式不符/);
+await assert.rejects(T.submissionFileType(file("fake.psd",[1,2,3])), /无法识别/);
 await assert.rejects(T.submissionFileType(file("x.gif",[1])), /只支持/);
 await assert.rejects(T.submissionFileType({...file("x.psd",[]),size:52428801}), /50 MB/);
 const psdTile = T.workTile({t:tasks[7],sub:{url:upload.replace(/png$/, "psd"),created_at:tasks[7].created_at},kind:"submitted"});
@@ -196,3 +196,8 @@ for (const size of [10485761, 52428800]) {
   assert.equal((await T.submissionFileType({...file("large.psd",[56,66,80,83,0,1]),size})).ext,"psd");
 }
 console.log("PASS: accepts files over 10 MB through 50 MB, rejects over 50 MB");
+
+assert.equal((await T.submissionFileType(file("wrong.png",[255,216,255]))).ext,"jpg");
+assert.equal((await T.submissionFileType(file("wrong.jpg",[137,80,78,71,13,10,26,10]))).ext,"png");
+await assert.rejects(T.submissionFileType(file("large.psd",[56,66,80,83,0,2])), /PSB/);
+console.log("PASS: valid images with mismatched extensions are accepted; PSB is explained");
