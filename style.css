@@ -1855,3 +1855,9 @@ input, textarea, select, button { font-family: "Noto Sans SC", sans-serif; }
 
 #toast.toast-error { background: #813f32; border-color: #bd8577; }
 .upload-feedback { padding: 12px 14px; border: 1px solid #bd8577; border-radius: 8px; background: #f9e9e1; color: #813f32; line-height: 1.6; overflow-wrap: anywhere; }
+
+/* Uploaded artwork sits on white, including transparent PNG regions. */
+.work .work-art.has-img,
+.work .work-art.has-img img,
+.art-preview,
+.art-preview img { background: #fff; }
