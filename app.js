@@ -205,7 +205,7 @@ let cfg = window.GUILD_CONFIG,
 const DEMO = "art-guild-demo-v1",
   demo = !cfg.supabaseUrl || !cfg.supabaseKey,
   UPLOAD_BUCKET = "guild-submissions",
-  MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+  MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const uid = () => crypto.randomUUID(),
   now = () => new Date().toISOString(),
   month = () =>
@@ -797,7 +797,7 @@ async function showUploadedImages() {
 }
 
 async function submissionFileType(file) {
-  if (file.size <= 0 || file.size > MAX_IMAGE_BYTES) throw Error("文件必须小于或等于 10 MB");
+  if (file.size <= 0 || file.size > MAX_IMAGE_BYTES) throw Error("文件不能为空，单文件最多 50 MB");
   const suffix = String(file.name || "").split(".").pop().toLowerCase();
   const ext = suffix === "jpeg" ? "jpg" : suffix;
   const types = { jpg: "image/jpeg", png: "image/png", psd: "image/vnd.adobe.photoshop" };
@@ -838,7 +838,7 @@ function detail(id) {
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在准备作品链接…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
       return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品（JPG、PNG、PSD，最多 10 MB；PSD 仅供下载）<input name="image" type="file" accept=".jpg,.jpeg,.png,.psd,image/jpeg,image/png,image/vnd.adobe.photoshop"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
+    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品（JPG、PNG、PSD，最多 50 MB；PSD 仅供下载）<input name="image" type="file" accept=".jpg,.jpeg,.png,.psd,image/jpeg,image/png,image/vnd.adobe.photoshop"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
   bindArtistActions(t);
@@ -914,7 +914,7 @@ function detail(id) {
       }
       if (file) {
         if (demo) throw Error("演示模式不支持真实图片上传，请用链接演示");
-        toast("正在上传图片，请不要关闭页面…");
+        toast("正在上传作品，大文件需要多等一会儿，请不要关闭页面…");
         url = await uploadSubmissionImage(t, file);
       } else {
         url = safeURL(url);

@@ -186,8 +186,13 @@ for (const [name, bytes, ext] of [["图.JPG",[255,216,255],"jpg"],["图.jpeg",[2
 }
 await assert.rejects(T.submissionFileType(file("fake.psd",[1,2,3])), /格式不符/);
 await assert.rejects(T.submissionFileType(file("x.gif",[1])), /只支持/);
-await assert.rejects(T.submissionFileType({...file("x.psd",[]),size:10485761}), /10 MB/);
+await assert.rejects(T.submissionFileType({...file("x.psd",[]),size:52428801}), /50 MB/);
 const psdTile = T.workTile({t:tasks[7],sub:{url:upload.replace(/png$/, "psd"),created_at:tasks[7].created_at},kind:"submitted"});
 assert.match(psdTile,/源文件 · 点开下载/);
 assert.doesNotMatch(psdTile, /<img/);
 console.log("PASS: JPG/PNG/PSD validation, size limit, and PSD download-only tile");
+
+for (const size of [10485761, 52428800]) {
+  assert.equal((await T.submissionFileType({...file("large.psd",[56,66,80,83,0,1]),size})).ext,"psd");
+}
+console.log("PASS: accepts files over 10 MB through 50 MB, rejects over 50 MB");

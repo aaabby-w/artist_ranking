@@ -52,7 +52,7 @@
 
 ### 画师（已登录且被负责人开通）
 - 认领「待认领」任务，或者在「我的画桌」里看到分配给自己的任务。
-- 交稿：上传 PNG 图片（≤ 10 MB），或者填作品 / 网盘链接，并写交稿说明。
+- 交稿：上传 JPG、PNG、PSD 文件（≤ 50 MB），或者填作品 / 网盘链接，并写交稿说明。
 - 被打回时能看到打回理由，改完再交。
 - 归还不想画的任务。
 - 金山表里写着自己名字的卡：负责人绑定署名后，会出现在「我的画桌」，可以直接交稿。
@@ -438,7 +438,7 @@ guild-submissions/<上传者 uid>/<任务 id>/<随机 uuid>.png
 https://jcerhkfttppravatitdx.supabase.co/storage/v1/object/authenticated/guild-submissions/<路径>
 ```
 
-显示时再换成签名 URL。支持 JPG（含 JPEG）、PNG、PSD，单文件 ≤ 10 MB。图片可预览，PSD 通过私有签名链接下载，不在浏览器中预览；历史 WebP 仍可显示。存储桶已核查为不限制 MIME、上限 50 MB，前端保留 10 MB 限制。
+显示时再换成签名 URL。支持 JPG（含 JPEG）、PNG、PSD，单文件 ≤ 50 MB。图片可预览，PSD 通过私有签名链接下载，不在浏览器中预览；历史 WebP 仍可显示。存储桶已核查为不限制 MIME、上限 50 MB，前端上限同步为 50 MB。文件不压缩；GitHub 自动备份函数当前仍限制 25 MB，超过此大小的原件保存在 Supabase，不会成功备份到 GitHub。
 
 ### 7.8 Realtime 实时更新
 
