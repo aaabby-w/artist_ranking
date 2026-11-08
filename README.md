@@ -611,6 +611,9 @@ update public.guild_kdocs_state set default_points = 20, default_due_date = '202
 | `018_review_card_alias_award.sql` | 已绑定署名的终稿通过时，分数直接记到账号 |
 | `019_start_sheet_card.sql` | 表格已写画师的卡不用发布，直接交稿 |
 | `020_artwork_github_backup.sql` | 作品自动备份到 GitHub（按画师分文件夹）+ 定时任务 |
+| `021_withdraw_submission.sql` | 撤回待验收交稿，保留历史记录 |
+| `022_ex_rewards.sql` | 画师与单件作品 EX 奖励 |
+| `023_submission_attachments.sql` | 区分补充附件与交稿版本；撤回、验收锁定有效交稿；附件重试去重 |
 
 ---
 
@@ -627,8 +630,26 @@ update public.guild_kdocs_state set default_points = 20, default_due_date = '202
 
 ## 15. 已知限制
 
-- 信箱置顶的奖励说明（日期、金额）写在 `app.js` 的 `REWARD_MAIL` 里，换期时要手动改；右侧奖励卡读的是 `guild_campaign`。
+- 信箱奖励说明和右侧奖励卡共同读取 `guild_campaign`；换期后刷新即可更新。
 - 本期榜只是暂列，最终名单人工核对，网站不发奖金。
 - 金山令牌默认 180 天过期，需要人工续。
 - 「旧版参考」的卡仍需负责人确认是否单独绘制后再发布。
-- 上传只支持 PNG。
+- 上传支持 JPG、PNG、PSD，单文件不超过 50 MB；PSD 仅下载，不提供在线预览。
+
+
+## 2026-11-07 交稿流程修复的发布检查
+
+前端修复上传前校验、上传中重复提交、失败重试重复上传、隐藏搜索条件、画师姓名搜索、失败刷新误报成功和活动说明不同步。历史附件不改变交稿日期；详情中的操作人明确标为上传者。
+
+数据库 `023_submission_attachments.sql` 需在 `021` 后运行，区分 `revision` / `attachment`，并将历史补传记录归类为附件。它不重算既有积分、不删除作品；只有现有验收/撤回函数包含预期选择语句时才继续，遇到不同函数版本会整笔回滚。前端兼容迁移前的数据。SQL 成功后再更新静态站点，正式验收前核实迁移已生效。
+
+回归命令（临时 PGlite 安装可通过 `PGLITE_PATH` 指定）：
+
+```sh
+node --test tests/frontend-filters.test.mjs tests/upload-workflow.test.mjs tests/announcement.test.mjs tests/image-loader.test.mjs tests/toast-layer.test.mjs tests/edge-function.test.mjs tests/artwork-backup.test.mjs tests/kdocs-normalize.mjs tests/airscript-sync.cjs
+node --test tests/kdocs-database.cjs tests/collaboration-database.cjs tests/withdraw.test.cjs tests/ex-rewards.test.cjs tests/submission-attachments.test.cjs
+node --check app.js
+git diff --check
+```
+
+前端可通过 revert 本次修复提交回退。数据库回退保留新增列和作品记录，先比对线上函数后恢复 `014` 的补传函数、`013` 的验收函数和 `021` 的撤回函数；不要整份重跑旧迁移，也不要删除或重算积分。
