@@ -16,21 +16,16 @@ async function refreshInbox(){
 }
 // 信箱：邮件客户端式列表（置顶的本期奖励信 + 通知），点开进入阅读页，打开即标为已读。
 let inboxTab = "all";
-const REWARD_MAIL = {
-  id: "reward", pinned: true, from: "美术组", avatar: "绘", tone: "gold",
-  title: "本期最高贡献奖励 ¥100",
-  preview: "元旦之前，本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。",
-  html: `<p class="mail-hello">一点小心意 ( •̀ ω •́ )✧</p><div class="mail-reward"><span>第一期创作奖励</span><strong>¥100</strong><small>DDL（截止日期）：2027年1月1日</small></div>
-<p>元旦之前，本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。奖池来自某位好心人的自愿赞助，主要是想给这段时间投入比较多的小画师一点小奖励。（辛苦啦！）</p>
-<p>在 DDL（截止日期）前提交，并且最终通过的作品，都会计入本期贡献。</p>
-<p>我们想尽量赶上罗小黑 TV 更新的这波热度，在这段时间里多做一些能玩的项目，也让更多喜欢罗小黑的人发现我们。<span class="whisper">（万一被HMCH注意到了呢(ﾉ>ω<)ﾉ ）</span></p>
-<details class="mail-why">
-<summary>为什么要设 DDL（截止日期），还有这 100 元？</summary>
-<p>因为很多素材不是独立的。一份玩法可能要等好几位画师的素材才能继续做。如果没有一个大致的时间安排，开发这边也不好确定进度，任务就容易一直搁着,还会消耗大家的热情…… 所以每期会设一个 DDL（截止日期），方便大家安排时间，也方便开发组往下推进。</p>
-<p>100 元是好心人自愿赞助的，作为本期贡献榜第一名的奖励。另外，我们也会根据贡献记录整理最后的鸣谢名单。</p>
-<p>认领任务之前可以先看看自己的时间。如果最近有考试、工作，或者发现任务确实画不完，提前和负责人说一声就好。任务可以调整，也可以归还任务，不用有心理负担～</p>
-</details>`,
-};
+function rewardMail() {
+  const c = campaign();
+  return {
+    id: "reward", pinned: true, from: "美术组", avatar: "绘", tone: "gold",
+    title: `本期最高贡献奖励 ¥${Number(c.reward_amount ?? 100)}`,
+    preview: `${c.name} · ${c.ends_at ? "截止 " + beijing(c.ends_at) : "截止时间待定"} · 并列第一均分`,
+    html: rewardHTML(),
+  };
+}
+
 function mailSender(n) {
   const t = String(n.title || "");
   if (t.includes("欢迎")) return { from: "众生绘卷", avatar: "众", tone: "green" };
@@ -48,7 +43,7 @@ function mailTime(iso) {
   return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}月${d.getDate()}日` : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 function inboxMails() {
-  return [REWARD_MAIL, ...inboxRows.map((n) => ({ ...mailSender(n), id: n.id, unread: !n.read_at, title: n.title, preview: n.body, time: mailTime(n.created_at), full: new Date(n.created_at).toLocaleString("zh-CN"), task: n.task_id, html: `<p>${esc(n.body)}</p>` }))];
+  return [rewardMail(), ...inboxRows.map((n) => ({ ...mailSender(n), id: n.id, unread: !n.read_at, title: n.title, preview: n.body, time: mailTime(n.created_at), full: new Date(n.created_at).toLocaleString("zh-CN"), task: n.task_id, html: `<p>${esc(n.body)}</p>` }))];
 }
 function openInbox(mailId) {
   const mails = inboxMails(), unread = mails.filter((m) => m.unread).length;
@@ -346,10 +341,10 @@ function matchesTaskFilter(t, selected) {
   return selected === "all" ? list !== null : list === selected;
 }
 function matchesTaskSearch(t) {
-  return [t.title, t.category, t.brief, t.source_record?.artist, t.source_record?.card_id]
+  return [t.title, t.category, t.brief, t.artist_name, t.assignee ? name(t.assignee) : "", t.source_record?.artist, t.source_record?.card_id]
     .join(" ")
     .toLowerCase()
-    .includes(query.toLowerCase());
+    .includes(query.trim().toLowerCase());
 }
 function updateTaskFilters() {
   if (view !== "board" && view !== "mine") return;
@@ -529,7 +524,7 @@ function error(e) {
 async function load() {
   if (demo) {
     render();
-    return;
+    return true;
   }
   if (!user) {
     const n = ++seq;
@@ -539,7 +534,7 @@ async function load() {
         .select("*")
         .order("created_at", { ascending: false });
       if (readError) throw readError;
-      if (n !== seq) return;
+      if (n !== seq) return false;
       data = {
         tasks: tasks || [],
         profiles: [],
@@ -549,14 +544,15 @@ async function load() {
       };
       $("#connection").textContent = "登录后可认领";
       render();
+      return true;
     } catch (e) {
-      if (n !== seq) return;
+      if (n !== seq) return false;
       data = { tasks: [], profiles: [], submissions: [], awards: [], campaign: [] };
       $("#connection").textContent = "公开任务读取失败";
       render();
       error(e);
+      return false;
     }
-    return;
   }
   const n = ++seq;
   try {
@@ -570,31 +566,34 @@ async function load() {
       ),
     );
     for (const x of r) if (x.error) throw x.error;
-    if (n !== seq) return;
+    if (n !== seq) return false;
     tables.forEach((t, i) => (data[t] = r[i].data));
     // 原表同步状态只用于提示；读取失败不影响任务数据。
     const [state, run] = await Promise.all([
       client.from("guild_kdocs_state").select("last_success_at,approved_removals,approved_inserts").maybeSingle(),
       client.from("guild_kdocs_runs").select("status,error_code,started_at,summary").order("started_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
-    if (n !== seq) return;
+    if (n !== seq) return false;
     data.sync = { state: state.data || null, run: run.data || null };
     const aliases = await client.from("guild_artist_aliases").select("artist_name,artist_id");
-    if(n !== seq) return;
+    if(n !== seq) return false;
     data.aliases = aliases.data || [];
     data.aliasesUnavailable = !!aliases.error;
     const ex = await client.from("guild_ex_rewards").select("*").order("created_at", {ascending:false});
-    if(n !== seq) return;
+    if(n !== seq) return false;
     data.ex_rewards = ex.data || [];
     void refreshInbox();
     $("#connection").textContent = "● 已连接";
     render();
+    return true;
   } catch (e) {
+    if (n !== seq) return false;
     $("#connection").textContent = "读取失败 · 点击刷新重试";
     error(e);
+    return false;
   }
 }
-async function act(action, id, extra = {}) {
+async function act(action, id, extra = {}, propagateError = false) {
   if (busy) return;
   busy = true;
   const buttons = [...$("#dialog").querySelectorAll("button")];
@@ -627,7 +626,7 @@ async function act(action, id, extra = {}) {
           t.status = "active";
         } else if (action === "withdraw") {
           if (t.assignee !== user.id || t.status !== "submitted") throw Error("只能撤回自己的待验收交稿");
-          const sub = data.submissions.filter(s => s.task_id === id && !s.withdrawn_at).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0];
+          const sub = data.submissions.filter(s => s.task_id === id && !s.withdrawn_at && isRevision(s)).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0];
           if (!sub || data.awards.some(a=>a.task_id===id)) throw Error("当前交稿不能撤回");
           sub.withdrawn_at = now(); t.status = "active"; t.updated_at = now();
         } else if (action === "release") {
@@ -660,15 +659,16 @@ async function act(action, id, extra = {}) {
             t.status !== "submitted"
           )
             throw Error("需要其他负责人验收待审作品");
-          data.submissions.find((s) => s.task_id === id).feedback =
-            extra.feedback;
+          const revision = data.submissions.filter(s => s.task_id === id && !s.withdrawn_at && isRevision(s)).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0];
+          if (!revision) throw Error("没有可验收的交稿");
+          revision.feedback = extra.feedback;
           t.status = action === "approve" ? "done" : "changes";
           if (action === "approve")
             data.awards.push({
               id: uid(),
               task_id: id,
               artist_id: t.assignee,
-              submission_id: data.submissions.find((s) => s.task_id === id)?.id,
+              submission_id: revision.id,
               points: t.points,
               created_at: now(),
             });
@@ -715,6 +715,7 @@ async function act(action, id, extra = {}) {
       }[action],
     );
   } catch (e) {
+    if (propagateError) throw e;
     error(e);
   } finally {
     busy = false;
@@ -836,8 +837,8 @@ function detail(id) {
   if (!t) return;
   const admin = profile?.role === "admin",
     sheetCard = t.status === "imported" && !t.source_removed_at && sourceState(t) === "assigned" && t.source_record?.system !== "旧版参考",
-    own = t.assignee === user?.id || (sheetCard && belongsToMe(t));
-  const subs = data.submissions.filter((s) => s.task_id === id);
+    own = !!user && (t.assignee === user.id || (sheetCard && belongsToMe(t)));
+  const subs = data.submissions.filter((s) => s.task_id === id).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const historical = admin && (["submitted", "done"].includes(t.status) || (t.status === "imported" && sourceState(t) === "final" && !t.source_removed_at));
   modal(
     t.title,
@@ -846,7 +847,7 @@ function detail(id) {
       const link = path
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在准备作品链接…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
-      return `<div class="submission"><b>${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
+      return `<div class="submission"><b>上传者：${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
     }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品（JPG、PNG、PSD，最多 50 MB；PSD 仅供下载）<input name="image" type="file" accept=".jpg,.jpeg,.png,.psd,image/jpeg,image/png,image/vnd.adobe.photoshop"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
   bindImportForm(t);
@@ -905,6 +906,7 @@ function detail(id) {
     if (confirm("撤回这次交稿吗？任务将回到创作中，已上传图片和交稿记录保留。修改后需要重新提交验收。")) act("withdraw", id);
   });
   $("#release")?.addEventListener("click", () => act("release", id));
+  let uploadedFile = null, uploadedURL = null;
   $("#submit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (busy) return;
@@ -913,9 +915,24 @@ function detail(id) {
     const f = new FormData(form);
     const file = form.elements.image.files[0];
     let url = String(f.get("url") || "").trim();
-    button.disabled = true;
+    busy = true;
+    const controls = [...$("#dialog").querySelectorAll("button, input, textarea, select")];
+    const disabled = controls.map(control => control.disabled);
+    controls.forEach(control => { control.disabled = true; });
+    const cancel = event => event.preventDefault();
+    $("#dialog").addEventListener("cancel", cancel);
     form.querySelector(".upload-feedback")?.remove();
     try {
+      const note = String(f.get("note") || "").trim();
+      if (!note) throw Error("请填写交稿说明 / 来源说明");
+      if (file) {
+        if (demo) throw Error("演示模式不支持真实图片上传，请用链接演示");
+        await submissionFileType(file);
+      } else {
+        url = safeURL(url);
+        if (url === "#" || (historical && !url.startsWith("https://")))
+          throw Error(historical ? "请上传文件，或填写 HTTPS 作品链接" : "请上传文件，或填写有效的作品链接");
+      }
       // 表格已写画师的卡：交稿前先转成正式的创作中任务（作者按表格，分值和截止日期用默认）。
       if (sheetCard && !demo) {
         const r = await client.rpc("guild_start_sheet_card", { p_task: id });
@@ -925,16 +942,19 @@ function detail(id) {
       if (file) {
         if (demo) throw Error("演示模式不支持真实图片上传，请用链接演示");
         toast("正在上传作品，大文件需要多等一会儿，请不要关闭页面…");
-        url = await uploadSubmissionImage(t, file);
-      } else {
-        url = safeURL(url);
-        if (url === "#") throw Error("请上传图片，或填写有效的作品链接");
+        if (uploadedFile !== file || !uploadedURL) {
+          uploadedURL = await uploadSubmissionImage(t, file);
+          uploadedFile = file;
+        }
+        url = uploadedURL;
       }
-      const note = String(f.get("note") || "").trim();
       if (historical) {
         await adminRPC("guild_attach_artwork", {p_task:id,p_url:url,p_note:note},()=>{});
         $("#dialog").close(); toast("历史稿件已补传，验收状态保持原记录。");
-      } else if (own) await act("submit", id, { url, note });
+      } else if (own) {
+        busy = false; // act takes the same lock synchronously, before its first await.
+        await act("submit", id, { url, note }, true);
+      }
       else {
         await adminRPC("guild_admin_submit", { p_task: id, p_url: url, p_note: note }, () => {
           data.submissions.push({ id: uid(), task_id: id, author_id: user.id, url, note: "负责人代交：" + note, feedback: "", created_at: now() });
@@ -952,7 +972,9 @@ function detail(id) {
       feedback.scrollIntoView({ block: "nearest", behavior: "smooth" });
       error(e);
     } finally {
-      if (button.isConnected) button.disabled = false;
+      busy = false;
+      $("#dialog").removeEventListener("cancel", cancel);
+      controls.forEach((control, i) => { if (control.isConnected) control.disabled = disabled[i]; });
     }
   });
   for (const a of ["approve", "changes"])
@@ -1068,6 +1090,7 @@ document.addEventListener("click", (e) => {
       return;
     }
     view = b.dataset.view;
+    query = ""; $("#search").value = "";
     filter = "all";
     render();
     $(".content").scrollIntoView({ behavior: "smooth" });
@@ -1085,15 +1108,16 @@ $("#account").onclick = account;
 $("#new-task").onclick = () => newTask();
 $("#browse").onclick = () => {
   view = "board";
+  query = ""; $("#search").value = "";
   filter = "open";
   render();
   $(".content").scrollIntoView({ behavior: "smooth" });
 };
-$("#refresh").onclick = () => load().then(() => toast("已重新读取"));
+$("#refresh").onclick = async () => { if (await load()) toast("已重新读取"); };
 $("#settings").onclick = () =>
   modal(
     "会馆连接",
-    `<p class="detail-copy">${demo ? "当前为本地演示。部署时在 config.js 填入 Supabase 项目 URL 和 publishable 公钥，执行数据库脚本后即可切换真实模式。" : "当前连接 Supabase。成员权限、验收与贡献记分由数据库验证。"}</p><p class="muted">作品暂以链接 / 网盘交付。贡献排行仅记录验收通过的任务。同一任务不会重复记分。</p>`,
+    `<p class="detail-copy">${demo ? "当前为本地演示。部署时在 config.js 填入 Supabase 项目 URL 和 publishable 公钥，执行数据库脚本后即可切换真实模式。" : "当前连接 Supabase。成员权限、验收与贡献记分由数据库验证。"}</p><p class="muted">支持上传 JPG、PNG、PSD，或填写作品 / 网盘链接。贡献排行包含验收贡献与 EX 特别奖励。同一任务不会重复记分。</p>`,
   );
 // 公告栏开关：沿用 guild-announcement-display（open / collapsed / closed）。
 // 开 = 不是 closed（展开 / 收起照旧由公告右上角控制）；关 = closed。
@@ -1273,6 +1297,8 @@ function syncStatusHTML() {
   if (!s?.state) return "";
   const last = s.state.last_success_at ? new Date(s.state.last_success_at) : null;
   let html = `<small>金山表同步：${last ? last.toLocaleString("zh-CN") : "尚未成功"}</small>`;
+  const stale = !last || Date.now() - last > 30 * 60 * 1000;
+  if (stale) html += '<br><b>资料同步延迟：</b>当前显示上次成功同步的资料，最新安排请向负责人核对。';
   if (profile?.role !== "admin" || !s.run || s.run.status !== "failed") return html;
   const code = String(s.run.error_code || ""),
     bulk = code.match(/^MASS_(REMOVAL|INSERT)_BLOCKED_(\d+)$/);
@@ -1282,9 +1308,8 @@ function syncStatusHTML() {
       approved = kind === "removal" ? s.state.approved_removals : s.state.approved_inserts;
     return html + `<br><b>同步已暂停：</b>金山表这次会${kind === "removal" ? "移除" : "新增"} ${n} 张卡。若是有意修改，请确认；若被误删或读取异常，请先在金山修复。${approved === n ? "（已确认，等待下次同步）" : ` <button class="outline" id="approve-sync" data-kind="${kind}" data-count="${n}">确认${kind === "removal" ? "移除" : "新增"} ${n} 张</button>`}`;
   }
-  const stale = !last || Date.now() - last > 30 * 60 * 1000;
   return stale
-    ? html + `<br><b>同步失败：</b>${esc(code || "未知原因")}${/^SOURCE_HTTP_40[13]$/.test(code) ? "（金山脚本令牌可能已过期，需要重新生成）" : ""}`
+    ? html + `<br><b>同步失败：</b>${esc(code || "未知原因")}${/^SOURCE_HTTP_40[13]$/.test(code) ? "（金山脚本令牌可能已过期，需要重新生成）" : code === "SOURCE_SCRIPT_FAILED" ? "（请检查金山表中未填卡名的行、重复同步 ID，及脚本运行记录）" : ""}`
     : html;
 }
 function historySummary() {
@@ -1503,17 +1528,17 @@ function phaseRanking() {
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "zh-CN"));
 }
 function rewardHTML() {
-  const c = campaign();
+  const c = campaign(), amount = Number(c.reward_amount ?? 100);
   return `<p class="eyebrow">一点小心意 ( •̀ ω •́ )✧</p>
-<h3 class="reward-title">本期最高贡献奖励 <strong>¥100</strong></h3>
+<h3 class="reward-title">本期最高贡献奖励 <strong>¥${amount}</strong></h3>
 <p>${c.ends_at ? `${esc(c.name)}<br>DDL（截止日期）：${esc(new Date(c.ends_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric" }))}` : "DDL（截止日期）还没定～"}</p>
-<p>本期贡献榜第一名可以获得 100 元奖励，如果有并列第一就由大家平分。钱来自大家的自愿赞助，主要是想给这段时间投入比较多的小画师一点小奖励。</p>
+<p>本期贡献榜第一名可以获得 ${amount} 元奖励，如果有并列第一就由大家平分。钱来自大家的自愿赞助，主要是想给这段时间投入比较多的小画师一点小奖励。</p>
 <p>在 DDL（截止日期）前提交，并且最终通过的作品，都会计入本期贡献。</p>
 <p>我们想尽量赶上罗小黑 TV 更新的这波热度，在这段时间里多做一些能玩的项目，也让更多喜欢罗小黑的人发现我们。（万一被HMCH注意到了呢(ﾉ>ω<)ﾉ ）</p>
 <details class="reward-why">
-<summary>为什么要设 DDL（截止日期），还有这 100 元？</summary>
+<summary>为什么要设 DDL（截止日期），还有这 ${amount} 元？</summary>
 <p>因为很多素材不是独立的。一份玩法可能要等好几位画师的素材才能继续做。如果没有一个大致的时间安排，开发这边也不好确定进度，任务就容易一直搁着,还会消耗大家的热情…… 所以每期会设一个 DDL（截止日期），方便大家安排时间，也方便开发组往下推进。</p>
-<p>100 元是好心人自愿赞助的，作为本期贡献榜第一名的奖励。另外，我们也会根据贡献记录整理最后的鸣谢名单。</p>
+<p>${amount} 元是好心人自愿赞助的，作为本期贡献榜第一名的奖励。另外，我们也会根据贡献记录整理最后的鸣谢名单。</p>
 <p>认领任务之前可以先看看自己的时间。如果最近有考试、工作，或者发现任务确实画不完，提前和负责人说一声就好。任务可以调整，也可以归还，不用有心理负担～</p>
 </details>`;
 }
@@ -1612,19 +1637,21 @@ function newTask(task = null) {
 // 稿件展示：已交稿（待验收）和已完成的作品，加上金山表里登记了终稿的卡。
 // 作品图片在私有存储桶里，只给登录成员签发临时链接；游客只看到标题。
 let galleryFilter = "all";
-const signedWorks = new Map();
+function isRevision(s) {
+  return s.submission_kind ? s.submission_kind === "revision" : !String(s.note || "").startsWith("历史稿件补传：");
+}
 function galleryItems() {
   const items = [];
   for (const t of data.tasks) {
     if (t.status === "done" || t.status === "submitted") {
       const subs = data.submissions
-        .filter((s) => s.task_id === t.id)
+        .filter((s) => s.task_id === t.id && !s.withdrawn_at)
         .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
       const award = data.awards.find((a) => a.task_id === t.id);
-      const sub = (award && subs.find((s) => s.id === award.submission_id)) || subs[0] || null;
+      const sub = (award && subs.find((s) => s.id === award.submission_id)) || subs.find(isRevision) || subs[0] || null;
       items.push({ t, sub, kind: t.status, at: sub?.created_at || t.updated_at || t.created_at });
     } else if (t.status === "imported" && sourceState(t) === "final") {
-      const sub = data.submissions.filter(s => s.task_id === t.id).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null;
+      const sub = data.submissions.filter(s => s.task_id === t.id && !s.withdrawn_at).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null;
       items.push({ t, sub, kind: "sheet", at: sub?.created_at || t.updated_at || t.created_at });
     }
   }
@@ -1750,7 +1777,7 @@ function renderAdmin() {
         [t.title, t.category, t.brief, taskArtist(t)]
           .join(" ")
           .toLowerCase()
-          .includes(query.toLowerCase()),
+          .includes(query.trim().toLowerCase()),
     )
     .sort(
       (a, b) =>
@@ -1963,7 +1990,7 @@ function editCampaign() {
       s ? new Date(Date.parse(s) + 8 * 3600000).toISOString().slice(0, 16) : "";
   modal(
     "本期奖励时间",
-    `<form id="campaign-form"><label class="field">阶段名称<input name="name" maxlength="60" required value="${esc(c.name)}"></label><label class="field">统计开始（北京时间）<input name="start" type="datetime-local" required value="${local(c.starts_at)}"></label><label class="field">统计截止（北京时间）<input name="end" type="datetime-local" required value="${local(c.ends_at)}"></label><p class="muted">奖金总额 100 元，并列第一均分。预计 11 月中下旬截止，时间确定后再保存。已公示时间如需调整，请先与参与者沟通；最终通过版本须在统计期内提交。</p><button class="primary">保存并公布时间</button></form>`,
+    `<form id="campaign-form"><label class="field">阶段名称<input name="name" maxlength="60" required value="${esc(c.name)}"></label><label class="field">统计开始（北京时间）<input name="start" type="datetime-local" required value="${local(c.starts_at)}"></label><label class="field">统计截止（北京时间）<input name="end" type="datetime-local" required value="${local(c.ends_at)}"></label><p class="muted">奖金总额 ${Number(c.reward_amount ?? 100)} 元，并列第一均分。起止时间均按北京时间保存。已公示时间如需调整，请先与参与者沟通；最终通过版本须在统计期内提交。</p><button class="primary">保存并公布时间</button></form>`,
   );
   $("#campaign-form").onsubmit = async (e) => {
     e.preventDefault();

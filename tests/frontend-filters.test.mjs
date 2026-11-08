@@ -201,3 +201,47 @@ assert.equal((await T.submissionFileType(file("wrong.png",[255,216,255]))).ext,"
 assert.equal((await T.submissionFileType(file("wrong.jpg",[137,80,78,71,13,10,26,10]))).ext,"png");
 await assert.rejects(T.submissionFileType(file("large.psd",[56,66,80,83,0,2])), /PSB/);
 console.log("PASS: valid images with mismatched extensions are accepted; PSB is explained");
+
+// Regression: search uses the current display name and trims accidental whitespace.
+T.set({ user: {id:"a1"}, profile: base.profiles[1], view:"board", filter:"all", data:{...base,tasks} });
+vm.runInContext('query = "  画师丙  "', ctx);
+assert.equal(vm.runInContext('matchesTaskSearch(data.tasks.find(t=>t.id==="6"))',ctx), true);
+vm.runInContext('query = ""',ctx);
+
+// Regression: a withdrawn image is never the selected gallery submission.
+const galleryTask = {...tasks[7],id:"withdraw-test"};
+T.set({user:{id:"a1"},profile:base.profiles[1],view:"gallery",filter:"all",data:{...base,tasks:[galleryTask],submissions:[
+ {id:"live",task_id:galleryTask.id,url:"https://example.com/live.png",created_at:"2026-11-01T00:00:00Z"},
+ {id:"withdrawn",task_id:galleryTask.id,url:"https://example.com/withdrawn.png",created_at:"2026-11-02T00:00:00Z",withdrawn_at:"2026-11-03T00:00:00Z"}
+]}});
+assert.equal(vm.runInContext('galleryItems()[0].sub.id',ctx),"live");
+
+// Regression: reward mail follows the same campaign as the ranking panel.
+T.set({user:{id:"a1"},profile:base.profiles[1],view:"rank",filter:"all",data:{...base,tasks:[],campaign:[{name:"第二期",reward_amount:250,starts_at:"2026-12-01T00:00:00Z",ends_at:"2027-02-02T15:59:00Z"}]}});
+const mail=vm.runInContext('inboxMails()[0]',ctx);
+assert.match(mail.html,/第二期/);assert.match(mail.html,/250/);assert.match(mail.html,/2027年2月2日/);
+assert.doesNotMatch(mail.html,/2027年1月1日/);
+console.log("PASS: current artist search, withdrawn gallery, synchronized reward mail");
+
+// An explicit refresh must never announce success after a failed request.
+let toasts=[];
+ctx.recordToast=(message,isError)=>toasts.push({message,isError});
+vm.runInContext('toast=recordToast; user=null; client={from:()=>({select:()=>({order:async()=>({error:new Error("offline")})})})}',ctx);
+await el("#refresh").onclick();
+assert.equal(toasts.some(t=>t.message==="已重新读取"),false);
+assert.equal(toasts.some(t=>t.isError),true);
+vm.runInContext('client={from:()=>({select:()=>({order:async()=>({data:[],error:null})})})}',ctx);
+await el("#refresh").onclick();
+assert.equal(toasts.some(t=>t.message==="已重新读取"),true);
+console.log("PASS: refresh failure stays an error, successful refresh reports success");
+
+// New attachments must not change the revision/date represented by the gallery.
+T.set({user:{id:"a1"},profile:base.profiles[1],view:"gallery",filter:"all",data:{...base,tasks:[galleryTask],submissions:[
+ {id:"revision",task_id:galleryTask.id,url:"https://example.com/final.png",created_at:"2026-11-01T00:00:00Z",submission_kind:"revision"},
+ {id:"attachment",task_id:galleryTask.id,url:"https://example.com/source.psd",created_at:"2026-11-07T00:00:00Z",submission_kind:"attachment"}
+]}});
+assert.equal(vm.runInContext('galleryItems()[0].sub.id',ctx),"revision");
+assert.equal(vm.runInContext('galleryItems()[0].at',ctx),"2026-11-01T00:00:00Z");
+vm.runInContext('delete data.submissions[1].submission_kind; data.submissions[1].note="历史稿件补传：源文件"',ctx);
+assert.equal(vm.runInContext('galleryItems()[0].sub.id',ctx),"revision");
+console.log("PASS: attachment upload does not replace the revision or its date, before/after migration");

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 // Exercises supabase/functions/artwork-backup/index.ts under Node (types stripped),
 // with Deno, supabase-js, Storage and the GitHub API replaced by in-memory fakes.
 // Usage: node --experimental-strip-types tests/artwork-backup.test.mjs
@@ -6,7 +7,7 @@ import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 
 const dir = mkdtempSync(tmpdir() + "/artwork-edge-");
-const root = new URL("../supabase/functions/artwork-backup/", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../supabase/functions/artwork-backup/", import.meta.url));
 copyFileSync(root + "paths.mjs", dir + "/paths.mjs");
 writeFileSync(dir + "/fake-supabase.mjs", "export const createClient = (...a) => globalThis.__fakeClient(...a);");
 writeFileSync(dir + "/index.mts", readFileSync(root + "index.ts", "utf8").replace('"npm:@supabase/supabase-js@2"', '"./fake-supabase.mjs"'));

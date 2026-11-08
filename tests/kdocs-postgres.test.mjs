@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 // End-to-end test of the KDocs sync against a real local PostgreSQL.
 // Builds a production-shaped database (schema.sql -> 002 -> 003 -> Codex 004/005
 // with a real 168-card Codex-era sync), applies 007, then exercises every
@@ -9,7 +10,7 @@ import assert from "node:assert/strict";
 import { normalize } from "../supabase/functions/kdocs-sync/normalize.mjs";
 
 const DB = "kdocs_test_" + process.pid;
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const file = (p) => readFileSync(root + p, "utf8");
 const codexNormalize = process.argv[2] ? (await import(process.argv[2])).normalize : null;
 
