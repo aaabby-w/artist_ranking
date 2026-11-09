@@ -767,7 +767,7 @@ function loadArtwork(img, getUrl) {
 // Originals never cross accounts. A confirmed sheet alias also represents ownership.
 function canReadOriginal(t) {
   return !!profile?.active && (profile.role === 'admin' || !!user &&
-    (t.assignee === user.id || !t.assignee && (data.aliases || []).some(a =>
+    ((data.submissions || []).some(s => s.task_id === t.id && s.artwork_owner_id === user.id) || t.assignee === user.id || !t.assignee && (data.aliases || []).some(a =>
       a.artist_id === user.id && a.artist_name === String(t.artist_name || t.source_record?.artist || '').trim())));
 }
 function gallerySubmissions(t) {
