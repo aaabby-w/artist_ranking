@@ -245,3 +245,36 @@ assert.equal(vm.runInContext('galleryItems()[0].at',ctx),"2026-11-01T00:00:00Z")
 vm.runInContext('delete data.submissions[1].submission_kind; data.submissions[1].note="历史稿件补传：源文件"',ctx);
 assert.equal(vm.runInContext('galleryItems()[0].sub.id',ctx),"revision");
 console.log("PASS: attachment upload does not replace the revision or its date, before/after migration");
+
+// Website-only members are valid; source identity is not the account roster.
+const identitiesData={...base,tasks:[
+ {id:'source',title:'卡甲',status:'imported',source_record:{artist:'重名',row:4}},
+ {id:'old',title:'已移除卡',status:'imported',source_removed_at:'2026-11-01',source_record:{artist:'旧名字'}},
+ {id:'manual',title:'手动任务',status:'active',artist_name:'站外画师'},
+ {id:'credited',title:'已归属任务',status:'done',assignee:'member',source_record:{artist:'网页画师'}},
+],profiles:[
+ {id:'admin',name:'负责人',role:'admin',active:true},
+ {id:'member',name:'网页画师',role:'artist',active:true},
+ {id:'one',name:'重名',role:'artist',active:true},
+ {id:'two',name:'重名',role:'artist',active:true},
+ {id:'linked',name:'另一昵称',role:'artist',active:true},
+],aliases:[{artist_name:'旧笔名',artist_id:'linked'}],awards:[{artist_name:'仅有贡献',artist_id:null,points:20}]};
+T.set({user:{id:'admin'},profile:identitiesData.profiles[0],view:'admin',filter:'all',data:identitiesData});
+vm.runInContext('manageMembers()',ctx);
+const membersHTML=el('#dialog-body').innerHTML;
+assert.match(membersHTML,/网站成员 · 无需绑定/);
+assert.match(membersHTML,/已按任务归属登记，无需补绑/);
+assert.equal(vm.runInContext('memberIdentityLabel(data.profiles[1],artistIdentityRows())',ctx),'网站成员 · 无需绑定');
+assert.match(membersHTML,/存在同名账号/);
+assert.match(membersHTML,/多个同名账号，需核对本人/);
+assert.match(membersHTML,/仅有贡献/);
+assert.doesNotMatch(membersHTML,/旧名字/);
+assert.match(membersHTML,/已关联：另一昵称/);
+const bindingHTML=T.artistBindHTML(identitiesData.tasks[0],true);
+assert.doesNotMatch(bindingHTML,/<option[^>]*selected/,'same name must never preselect an account');
+assert.equal(vm.runInContext('artistIdentityRows().find(r=>r.label==="仅有贡献").heldPoints',ctx),20);
+assert.equal(vm.runInContext('taskArtist(data.tasks[2])',ctx),'站外画师（未关联账号）');
+vm.runInContext('data.aliasesUnavailable=true;manageMembers()',ctx);
+assert.match(el('#dialog-body').innerHTML,/关联信息读取失败/);
+assert.doesNotMatch(el('#dialog-body').innerHTML,/个待核对|网站成员 · 无需绑定/);
+console.log('PASS: website membership independent of sheet, duplicate names require verification, no auto-selection, failed alias read stays unknown');

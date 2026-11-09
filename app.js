@@ -1257,7 +1257,7 @@ function taskArtist(t) {
   return t.assignee
     ? name(t.assignee)
     : t.artist_name
-      ? `${t.artist_name}（未注册）`
+      ? `${t.artist_name}（未关联账号）`
       : t.status === "imported"
         ? t.source_record?.artist || "未分配画师"
         : "未认领";
@@ -1361,7 +1361,7 @@ function importDetail(t, admin) {
   const members = data.profiles.filter((p) => p.active);
   return (
     html +
-    `${publishIntro(t)}<form id="activate-import"><label class="field">贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写分数" value="${t.points ? Number(t.points) : ""}"></label><label class="field">负责画师<select name="assignee"><option value="">${s.artist ? `${esc(s.artist)}（按表格名字，还没注册也行）` : "开放给大家认领"}</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">${s.artist ? "选了账号就挂在账号下；用表格名字的话，等 ta 注册后在任务里点「绑定账号」。" : "选了账号就直接进入「创作中」。"}</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">${s.artist ? "保存安排，进入创作中" : "保存安排，开放认领"}</button></form>`
+    `${publishIntro(t)}<form id="activate-import"><label class="field">贡献分<input name="points" type="number" min="1" max="1000" required placeholder="填写分数" value="${t.points ? Number(t.points) : ""}"></label><label class="field">负责画师<select name="assignee"><option value="">${s.artist ? `${esc(s.artist)}（按表格名字，还没注册也行）` : "开放给大家认领"}</option>${members.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.id.slice(-6))}${p.role === "admin" ? "（负责人）" : ""}</option>`).join("")}</select></label><p class="muted">${s.artist ? "选了账号就挂在账号下；用表格名字的话，等 ta 注册后在任务里点「绑定账号」。" : "选了账号就直接进入「创作中」。"}</p>${s.system === "旧版参考" ? '<label class="field"><span><input name="legacy" type="checkbox" required> 已确认这张旧版卡牌需要单独绘制</span></label>' : ""}<button class="primary">${s.artist ? "保存安排，进入创作中" : "保存安排，开放认领"}</button></form>`
   );
 }
 function bindImportForm(t) {
@@ -1855,8 +1855,7 @@ function artistBindHTML(t, admin) {
     const acct = data.profiles.find((p) => p.id === bound.artist_id);
     return `<div class="submission bound-note"><b>✓ ${esc(sheetArtist)} 已绑定账号</b><p class="muted">${acct ? `${esc(acct.name)} · ${esc(acct.id.slice(-6))}。` : ""}表格里写着 ta 的卡和贡献，都会记到这个账号上。</p></div>`;
   }
-  const sameName = members.find((p) => p.name.trim() === sheetArtist.trim());
-  return `<div class="submission"><b>${esc(sheetArtist)}  · 账号关联</b><p class="muted">${t.status === "submitted" ? "核对本人后连接账号，名下任务和暂存贡献将归入该账号。" : "由负责人核对表格署名与注册账号。绑定一次后，该署名的创作中任务即可交稿，无需再次发布。"}</p>${admin ? `<div class="bind-row"><select id="bind-user"><option value="">选择 ta 注册后的账号</option>${members.map((p) => `<option value="${esc(p.id)}" ${sameName?.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.id.slice(-6))}</option>`).join("")}</select><button class="primary" id="bind-artist">绑定账号</button>${["active", "changes"].includes(t.status) ? '<button class="outline" id="release-name">改回待认领</button>' : ""}</div>` : ""}</div>`;
+  return `<div class="submission"><b>${esc(sheetArtist)}  · 账号关联</b><p class="muted">${t.status === "submitted" ? "核对本人后连接账号，名下任务和暂存贡献将归入该账号。" : "由负责人核对表格署名与注册账号。绑定一次后，该署名的创作中任务即可交稿，无需再次发布。"}</p>${admin ? `<div class="bind-row"><select id="bind-user"><option value="">选择 ta 注册后的账号</option>${members.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.id.slice(-6))}</option>`).join("")}</select><button class="primary" id="bind-artist">绑定账号</button>${["active", "changes"].includes(t.status) ? '<button class="outline" id="release-name">改回待认领</button>' : ""}</div>` : ""}</div>`;
 }
 function bindArtistActions(t) {
   $("#bind-artist")?.addEventListener("click", async () => {
@@ -1925,31 +1924,76 @@ async function adminRPC(name, args, demoAction) {
     await load();
   }
 }
-// 画师管理：已绑定金山表署名的账号名字后打勾，没绑定的标出来，未绑定的排在前面。
+// Website membership and source-name association are independent.
 function boundNames(id) {
   return (data.aliases || []).filter((a) => a.artist_id === id).map((a) => a.artist_name);
 }
+function artistIdentityRows() {
+  const rows = new Map();
+  const add = raw => {
+    const label = String(raw || "").trim();
+    if (!label) return null;
+    if (!rows.has(label)) rows.set(label, {label, tasks: [], heldPoints: 0});
+    return rows.get(label);
+  };
+  for (const t of data.tasks) {
+    // Removed source snapshots alone must not create a current binding request.
+    const labels = new Set([t.artist_name, !t.source_removed_at && t.source_record?.artist].filter(Boolean).map(n=>String(n).trim()));
+    for (const label of labels) add(label)?.tasks.push(t);
+  }
+  for (const a of data.awards) if (!a.artist_id && a.artist_name) { const row=add(a.artist_name); if(row) row.heldPoints += Number(a.points || 0); }
+  for (const a of data.aliases || []) add(a.artist_name);
+  return [...rows.values()].map(row => ({...row,
+    binding: (data.aliases || []).find(a=>a.artist_name===row.label),
+    needsBinding: row.heldPoints>0 || row.tasks.some(t=>(!t.assignee && String(t.artist_name || "").trim()===row.label) || (t.status==="imported" && !t.source_removed_at && String(t.source_record?.artist || "").trim()===row.label)),
+    candidates: data.profiles.filter(p=>p.name.trim()===row.label),
+  })).sort((a,b)=>Number(!!a.binding)-Number(!!b.binding)||a.label.localeCompare(b.label,"zh-CN"));
+}
+function memberIdentityLabel(p, rows) {
+  if (data.aliasesUnavailable) return "关联信息读取失败";
+  if (boundNames(p.id).length) return "已关联署名";
+  if (rows.some(r=>!r.binding && r.needsBinding && r.label===p.name.trim())) return "有同名署名，待核对";
+  return "网站成员 · 无需绑定";
+}
 function manageMembers() {
-  modal(
-    "画师管理",
-    `<p class="muted">画师可使用邮箱验证码登录并填写昵称。管理员可管理已注册的画师账号；原表署名不会自动建立账号。</p><div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号 · ✓ 已绑定署名</th><th>状态</th><th>操作</th></tr></thead><tbody>${[
-      ...data.profiles,
-    ]
-      .sort(
-        (a, b) =>
-          Number(a.active) - Number(b.active) ||
-          Number(boundNames(a.id).length > 0) - Number(boundNames(b.id).length > 0) ||
-          a.name.localeCompare(b.name, "zh-CN"),
-      )
-      .map(
-        (p) =>
-          `<tr><td>${esc(p.name)}${p.role === "artist" ? (boundNames(p.id).length ? ` <span class="bound-mark" title="已绑定金山表署名">✓</span>` : ' <span class="unbound-mark">未绑定</span>') : ""}<small>${esc(p.id.slice(-6))}${boundNames(p.id).length ? " · 表格署名：" + boundNames(p.id).map(esc).join("、") : ""}</small></td><td>${p.role === "admin" ? "负责人" : p.active ? "已开通" : "待开通"}</td><td>${p.role === "artist" ? `<button class="outline" data-member="${esc(p.id)}">管理</button>` : "—"}</td></tr>`,
-      )
-      .join("")}</tbody></table></div>`,
-  );
-  document
-    .querySelectorAll("[data-member]")
-    .forEach((b) => (b.onclick = () => editMember(b.dataset.member)));
+  const rows = artistIdentityRows();
+  const known = !data.aliasesUnavailable;
+  const pending = rows.filter(r=>!r.binding && r.needsBinding).length;
+  modal("画师管理", `<p>网站成员可以直接参与网站任务，不必出现在金山表里。只有需要认领表格署名下的任务或暂存贡献时，才需要关联账号。</p>
+    <p class="muted">同名只是核对线索，不代表同一个人；没有同名记录也不代表没有其他署名。</p>
+    <p class="muted">表格资料最后同步：${data.sync?.state?.last_success_at ? esc(new Date(data.sync.state.last_success_at).toLocaleString('zh-CN')) : '尚未确认'}。${!data.sync?.state?.last_success_at || Date.now()-Date.parse(data.sync.state.last_success_at)>30*60*1000 ? '同步延迟或状态未知，请打开金山原表核对最新安排。' : ''}</p>
+    ${!known ? '<p role="alert">账号关联信息未读取成功，暂不判断谁需要关联。请关闭窗口并刷新后重试。</p>' : ''}
+    <label class="field">查找成员或署名<input id="member-search" type="search" placeholder="昵称、账号尾号、表格署名"></label>
+    <h3>网站成员 · ${data.profiles.length}</h3>
+    <div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>账号状态与署名</th><th>操作</th></tr></thead><tbody>${[...data.profiles].sort((a,b)=>Number(a.active)-Number(b.active)||a.name.localeCompare(b.name,"zh-CN")).map(p=>{
+      const names = boundNames(p.id);
+      const duplicate = data.profiles.filter(other=>other.name.trim()===p.name.trim()).length>1;
+      return `<tr data-identity-search="${esc([p.name,p.id.slice(-6),...names].join(' ').toLowerCase())}"><td>${esc(p.name)}${duplicate?' <span class="unbound-mark">存在同名账号</span>':''}<small>账号尾号 ${esc(p.id.slice(-6))}</small></td><td>${p.role==='admin'?'负责人':p.active?'已开通':'待开通 / 已停用'}<small>${esc(memberIdentityLabel(p,rows))}${names.length?'：'+names.map(esc).join('、'):''}</small></td><td>${p.role==='artist'?`<button class="outline" data-member="${esc(p.id)}">管理账号</button>`:'—'}</td></tr>`;
+    }).join('')}</tbody></table></div>
+    <h3>任务署名${known?' · '+pending+' 个待核对':''}</h3>
+    <p class="muted">来自网站保存的表格资料、任务署名及暂存贡献。同步延迟时可能不是最新名单；画师不在这里也可以正常使用网站。</p>
+    <p><a href="https://www.kdocs.cn/l/chYu5VON9OzX" target="_blank" rel="noopener noreferrer">打开金山原表核对 ↗</a> · 在「全部卡牌」查找「负责画师」，同时核对卡名和同步 ID。</p>
+    <div class="table-wrap"><table class="admin-table"><thead><tr><th>署名 / 关联状态</th><th>关联内容</th><th>核对入口</th></tr></thead><tbody>${rows.map((r,i)=>{
+      const account = r.binding && data.profiles.find(p=>p.id===r.binding.artist_id);
+      const state = !known?'关联情况未知':r.binding?`已关联：${account?.name || '账号资料未加载'}${account?' · '+account.id.slice(-6):''}`:!r.needsBinding?'已按任务归属登记，无需补绑':r.candidates.length>1?'多个同名账号，需核对本人':r.candidates.length===1?'有同名账号，尚未确认身份':'尚未关联，可使用不同昵称的账号';
+      return `<tr data-identity-search="${esc([r.label,account?.name,...r.candidates.map(p=>p.name)].join(' ').toLowerCase())}"><td>${esc(r.label)}<small>${esc(state)}</small></td><td>${r.tasks.length} 份相关任务<small>${r.heldPoints} 暂存贡献分</small></td><td><button class="outline" data-identity="${i}">查看关联内容</button></td></tr>`;
+    }).join('') || '<tr><td colspan="3">暂无任务署名；网站成员仍可正常接任务。</td></tr>'}</tbody></table></div>
+    <p id="member-search-empty" hidden>没有匹配的成员或署名。</p>`);
+  document.querySelectorAll('[data-member]').forEach(b=>b.onclick=()=>editMember(b.dataset.member));
+  document.querySelectorAll('[data-identity]').forEach(b=>b.onclick=()=>identityDetail(rows[Number(b.dataset.identity)]));
+  $('#member-search').oninput = e => {
+    const q=e.target.value.trim().toLowerCase(); let shown=0;
+    document.querySelectorAll('[data-identity-search]').forEach(row=>{row.hidden=!row.dataset.identitySearch.includes(q);if(!row.hidden) shown++;});
+    $('#member-search-empty').hidden=shown>0;
+  };
+}
+function identityDetail(row) {
+  modal('核对署名：'+row.label, `<p>请核对这位画师本人，再决定是否关联。关联会影响该署名下的任务和暂存贡献，同名账号不能自动视为本人。</p>
+    <p>${row.tasks.length} 份相关任务 · ${row.heldPoints} 暂存贡献分</p>
+    ${row.tasks.map(t=>`<p><button class="outline" data-identity-task="${esc(t.id)}">${esc(t.title)} · ${esc(taskLabel(t))}</button><small> 当前负责：${esc(taskArtist(t))}${t.source_record?.row?' · 原表第 '+esc(t.source_record.row)+' 行':''}${t.kdocs_card_id?' · 卡牌 ID：'+esc(t.kdocs_card_id):''}</small></p>`).join('') || '<p>没有可查看的任务；请先核对历史贡献归属。</p>'}
+    <p class="muted">在相关任务的「账号关联」处选择本人账号。若当前任务已经分配给其他账号，先核实归属，勿用改名方式强行合并。</p><button class="outline" id="back-members">返回画师管理</button>`);
+  document.querySelectorAll('[data-identity-task]').forEach(b=>b.onclick=()=>detail(b.dataset.identityTask));
+  $('#back-members').onclick=manageMembers;
 }
 function editMember(id) {
   const p = data.profiles.find((p) => p.id === id);
