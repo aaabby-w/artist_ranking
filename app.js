@@ -384,7 +384,7 @@ function render() {
     : user && !profile?.active
       ? "账号已登录，等待负责人开通成员权限。"
       : !user
-        ? "您当前是游客身份；登录后可以认领和交稿。"
+        ? "请先登录；新账号由负责人开通后，可查看任务和参与创作。"
         : "欢迎来到会馆。按自己的时间认领，验收通过后自动记录贡献。";
   $("#new-task").hidden = profile?.role !== "admin";
   $("#stats").innerHTML = [
@@ -437,6 +437,16 @@ function render() {
   $("#section-label").textContent =
     view === "rank" ? "THANK YOU FOR CREATING" : view === "gallery" ? "THE WALL OF WORKS" : "TAKE A LITTLE QUEST";
   $("#toolbar").hidden = view === "rank" || view === "admin" || view === "gallery";
+  if (!demo && !profile?.active) {
+    $("#toolbar").hidden = true;
+    if ($("#import-summary")) $("#import-summary").innerHTML = "";
+    $("#stats").innerHTML = "";
+    $("#top").innerHTML = "";
+    $("#count").textContent = "";
+    $("#list").innerHTML = `<div class="empty">${user ? "账号已登录，等待负责人开通成员权限。" : "登录并开通成员权限后，可以查看任务和作品预览。"}<br><button class="primary" id="access-account">${user ? "查看我的账号" : "登录会馆"}</button></div>`;
+    $("#access-account").onclick = account;
+    return;
+  }
   updateTaskFilters();
   renderImportSummary();
   if (view === "admin") {
@@ -527,32 +537,11 @@ async function load() {
     return true;
   }
   if (!user) {
-    const n = ++seq;
-    try {
-      const { data: tasks, error: readError } = await client
-        .from("guild_task_preview")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (readError) throw readError;
-      if (n !== seq) return false;
-      data = {
-        tasks: tasks || [],
-        profiles: [],
-        submissions: [],
-        awards: [],
-        campaign: [],
-      };
-      $("#connection").textContent = "登录后可认领";
-      render();
-      return true;
-    } catch (e) {
-      if (n !== seq) return false;
-      data = { tasks: [], profiles: [], submissions: [], awards: [], campaign: [] };
-      $("#connection").textContent = "公开任务读取失败";
-      render();
-      error(e);
-      return false;
-    }
+    ++seq;
+    data = {tasks: [], profiles: [], submissions: [], awards: [], campaign: [], previews: []};
+    $("#connection").textContent = "请登录会馆";
+    render();
+    return true;
   }
   const n = ++seq;
   try {
@@ -582,6 +571,10 @@ async function load() {
     const ex = await client.from("guild_ex_rewards").select("*").order("created_at", {ascending:false});
     if(n !== seq) return false;
     data.ex_rewards = ex.data || [];
+    const previews = await client.rpc("guild_list_artwork_previews");
+    if(n !== seq) return false;
+    data.previews = previews.data || [];
+    data.previewsUnavailable = !!previews.error;
     void refreshInbox();
     $("#connection").textContent = "● 已连接";
     render();
@@ -771,8 +764,109 @@ function loadArtwork(img, getUrl) {
     else if (!img.isConnected) { settled = true; clearTimeout(timer); }
   }).catch(() => finish(false));
 }
+// Originals never cross accounts. A confirmed sheet alias also represents ownership.
+function canReadOriginal(t) {
+  return !!profile?.active && (profile.role === 'admin' || !!user &&
+    (t.assignee === user.id || !t.assignee && (data.aliases || []).some(a =>
+      a.artist_id === user.id && a.artist_name === String(t.artist_name || t.source_record?.artist || '').trim())));
+}
+function gallerySubmissions(t) {
+  return canReadOriginal(t) ? data.submissions : (data.previews || []);
+}
+const PREVIEW_BUCKET = 'guild-artwork-previews';
+function sharedPreviewsHTML(t) {
+  const previews = (data.previews || []).filter(p => p.task_id === t.id);
+  return `<div class="submission"><p>仅展示带水印的低清预览。原稿、PSD 和网盘链接仅本人及负责人可取。</p>${previews.length ? previews.map(p=>`<div class="art-preview"><img data-preview-path="${esc(p.preview_path)}" alt="${esc(t.title)} · 水印预览"></div>`).join('') : '<p>水印预览暂未提供。</p>'}</div>`;
+}
+async function showSharedPreviews() {
+  if (demo || !profile?.active) return;
+  document.querySelectorAll('img[data-preview-path]').forEach(img => loadArtwork(img, async () => {
+    const {data:r,error:e} = await client.storage.from(PREVIEW_BUCKET).createSignedUrl(img.dataset.previewPath,300);
+    if(e || !r?.signedUrl) throw Error('预览暂不可用');
+    return r.signedUrl;
+  }));
+}
+function previewDimensions(width,height) {
+  if (!(width>0 && height>0)) throw Error('图片尺寸无效');
+  const scale = Math.min(1,640/Math.max(width,height));
+  return {width:Math.max(1,Math.round(width*scale)),height:Math.max(1,Math.round(height*scale))};
+}
+async function watermarkedPreview(blob) {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const size = previewDimensions(bitmap.width,bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width=size.width;canvas.height=size.height;
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#eee8df';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width/2,canvas.height/2);ctx.rotate(-Math.PI/6);
+    ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.lineWidth=3;
+    ctx.strokeStyle='rgba(0,0,0,.35)';ctx.fillStyle='rgba(255,255,255,.65)';
+    const extent=Math.max(canvas.width,canvas.height)*1.5;
+    for(let y=-extent;y<=extent;y+=100) for(let x=-extent;x<=extent;x+=230){
+      ctx.strokeText('众生绘卷 · 仅供预览',x,y);ctx.fillText('众生绘卷 · 仅供预览',x,y);
+    }
+    ctx.restore();
+    const result=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.72));
+    if(!result || result.size>524288) throw Error('预览生成失败');
+    return result;
+  } finally { bitmap.close(); }
+}
+async function createArtworkPreview(sub, suppliedFile) {
+  const task=data.tasks.find(t=>t.id===sub.task_id);
+  if(!task || !canReadOriginal(task) || sub.withdrawn_at) throw Error('无权生成此作品预览');
+  const userId=user?.id;
+  let file=suppliedFile;
+  if(!file){
+    const path=uploadedImagePath(sub.url);
+    if(!path || !/\.(png|jpg|webp)$/i.test(path)) throw Error('该文件无法生成图片预览');
+    const response=await client.storage.from(UPLOAD_BUCKET).download(path);
+    if(response.error) throw response.error;
+    file=response.data;
+  }
+  const preview=await watermarkedPreview(file);
+  if(user?.id!==userId) throw Error('账号已切换，请重试');
+  const path=`${sub.task_id}/${sub.id}.jpg`;
+  const upload=await client.storage.from(PREVIEW_BUCKET).upload(path,preview,{contentType:'image/jpeg',upsert:true});
+  if(upload.error) throw upload.error;
+  const save=await client.rpc('guild_save_artwork_preview',{p_submission:sub.id});
+  if(save.error) throw save.error;
+  data.previews ||= [];
+  data.previews=data.previews.filter(p=>p.id!==sub.id);
+  data.previews.push({id:sub.id,task_id:sub.task_id,preview_path:path,created_at:sub.created_at,submission_kind:sub.submission_kind});
+}
+async function refreshPreviews() {
+  const result=await client.rpc('guild_list_artwork_previews');
+  if(result.error) throw result.error;
+  data.previews=result.data || [];
+  if(view==='gallery') renderGallery();
+}
+function previewCandidates() {
+  return data.submissions.filter(s=>!s.withdrawn_at && /\.(png|jpg|webp)$/i.test(uploadedImagePath(s.url)||'') &&
+    !(data.previews||[]).some(p=>p.id===s.id) && data.tasks.some(t=>t.id===s.task_id && !t.source_removed_at && canReadOriginal(t)));
+}
+let previewsBusy=false;
+async function generateMissingPreviews() {
+  if(previewsBusy) return;
+  previewsBusy=true;
+  const actor=user?.id, candidates=previewCandidates();
+  const button=$('#generate-previews'),status=$('#preview-progress');
+  if(button) button.disabled=true;
+  let done=0,failed=0;
+  try {
+    for(const sub of candidates){
+      if(user?.id!==actor) break;
+      if(status) status.textContent=` 正在生成 ${done+failed+1}/${candidates.length}，请保持页面打开…`;
+      try {await createArtworkPreview(sub);done++;} catch {failed++;}
+    }
+    if(user?.id===actor){await refreshPreviews();toast(`已生成 ${done} 份水印预览${failed?'，'+failed+' 份未成功，可重试':''}。`,failed>0);}
+  } finally {previewsBusy=false;if(button?.isConnected) button.disabled=false;}
+}
+
 async function artworkUrl(path) {
-  const {data, error} = await client.storage.from(UPLOAD_BUCKET).createSignedUrl(path, 3600);
+  const {data, error} = await client.storage.from(UPLOAD_BUCKET).createSignedUrl(path, 300);
   if (error || !data?.signedUrl) throw new Error('Image unavailable');
   return data.signedUrl;
 }
@@ -834,11 +928,11 @@ async function uploadSubmissionImage(task, file) {
 
 function detail(id) {
   const t = data.tasks.find((t) => t.id === id);
-  if (!t) return;
+  if (!t || (!demo && !profile?.active)) return;
   const admin = profile?.role === "admin",
     sheetCard = t.status === "imported" && !t.source_removed_at && sourceState(t) === "assigned" && t.source_record?.system !== "旧版参考",
     own = !!user && (t.assignee === user.id || (sheetCard && belongsToMe(t)));
-  const subs = data.submissions.filter((s) => s.task_id === id).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const subs = (canReadOriginal(t) ? data.submissions : []).filter((s) => s.task_id === id).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const historical = admin && (["submitted", "done"].includes(t.status) || (t.status === "imported" && sourceState(t) === "final" && !t.source_removed_at));
   modal(
     t.title,
@@ -848,8 +942,9 @@ function detail(id) {
         ? `<a data-upload-path="${esc(path)}" rel="noopener noreferrer" target="_blank">正在准备作品链接…</a>`
         : `<a href="${esc(safeURL(s.url))}" target="_blank" rel="noopener noreferrer">打开作品 / 网盘链接 ↗</a>`;
       return `<div class="submission"><b>上传者：${esc(name(s.author_id))} · ${new Date(s.created_at).toLocaleString("zh-CN")}</b><p>${s.withdrawn_at ? "【已撤回】" : ""}${esc(s.note)}</p>${link}${s.feedback ? "<p>负责人反馈：" + esc(s.feedback) + "</p>" : ""}</div>`;
-    }).join("")}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品（JPG、PNG、PSD，最多 50 MB；PSD 仅供下载）<input name="image" type="file" accept=".jpg,.jpeg,.png,.psd,image/jpeg,image/png,image/vnd.adobe.photoshop"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
+    }).join("")}${!canReadOriginal(t) ? sharedPreviewsHTML(t) : ""}${t.status === "changes" && t.review_note ? `<div class="submission review-note"><b>打回理由</b><p>${esc(t.review_note)}</p></div>` : ""}${artistBindHTML(t, admin)}${submissionAccessHint(t, admin)}${historical || (own || admin) && (sheetCard || ["active", "changes"].includes(t.status)) ? `<form id="submit-form">${historical ? "<h3>补传历史稿件</h3><p>补上作品与来源说明，验收状态和已有贡献分保持原记录。</p>" : own ? "" : `<h3>帮画师交稿</h3><p class="muted">替${esc(taskArtist(t))}上传作品，交上去就进入待验收。</p>`}<label class="field">上传作品（JPG、PNG、PSD，最多 50 MB；PSD 仅供下载）<input name="image" type="file" accept=".jpg,.jpeg,.png,.psd,image/jpeg,image/png,image/vnd.adobe.photoshop"></label><label class="field">或填写作品 / 网盘链接<input name="url" type="url" placeholder="https://…"></label><label class="field">交稿说明 / 提取码<textarea name="note" required maxlength="1980"></textarea></label><button class="primary" type="submit">${historical ? "保存历史稿件" : own ? "提交验收" : "代交，进入待验收"}</button></form>` : ""}${admin && t.status === "submitted" && !own ? '<label class="field">打回理由（点「不通过」时必填）<textarea id="feedback" maxlength="2000" placeholder="写清楚哪里要改、怎么改"></textarea></label>' : ""}<div class="actions">${t.status === "open" || (!user && !t.source_removed_at && taskList(t) === "open") ? '<button class="primary" id="claim">认领这份任务</button>' : ""}${own && t.status === "submitted" ? '<button class="outline" id="withdraw-submission">撤回交稿</button>' : ""}${own && ["active", "changes"].includes(t.status) ? '<button class="outline" id="release">归还任务</button>' : ""}${admin && t.status === "submitted" && !own ? '<button class="primary" id="approve">通过 · 放进稿件展示</button><button class="outline danger" id="changes">不通过</button>' : ""}</div>`,
   );
+  void showSharedPreviews();
   bindImportForm(t);
   bindArtistActions(t);
   document.querySelectorAll("#review-card [data-review]").forEach(
@@ -963,6 +1058,13 @@ function detail(id) {
         $("#dialog").close();
         toast("已代交，进入待验收～");
       }
+      if (file && !demo) {
+        const saved = data.submissions.find(s => s.task_id === id && s.url === url && !s.withdrawn_at);
+        if (saved && !uploadedImagePath(saved.url)?.endsWith('.psd')) {
+          try { await createArtworkPreview(saved, file); await refreshPreviews(); }
+          catch { toast("原稿已保存，水印预览暂未生成；可在稿件展示中重试。", true); }
+        }
+      }
     } catch (e) {
       const feedback = document.createElement("p");
       feedback.className = "upload-feedback";
@@ -1041,7 +1143,7 @@ function account() {
   }
   modal(
     "登录会馆",
-    '<p class="muted">输入邮箱收验证码就能登录。注册过的邮箱会直接进原来的账号，不会新建。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required autocomplete="email"></label><label class="field">画师昵称<small class="muted">（第一次来才需要填，尽量和金山表署名一致）</small><input name="artist_name" maxlength="40" autocomplete="nickname" placeholder="已注册过可以不填"></label><button class="primary">发送验证码</button></form>',
+    '<p class="muted">输入邮箱收验证码就能登录。注册过的邮箱会直接进原来的账号，不会新建。新账号需要负责人开通后才能查看任务。</p><form id="login"><label class="field">邮箱<input name="email" type="email" required autocomplete="email"></label><label class="field">画师昵称<small class="muted">（第一次来才需要填，可以使用自己的昵称）</small><input name="artist_name" maxlength="40" autocomplete="nickname" placeholder="已注册过可以不填"></label><button class="primary">发送验证码</button></form>',
   );
   $("#login").onsubmit = async (e) => {
     e.preventDefault();
@@ -1189,6 +1291,8 @@ async function init() {
       user = session?.user;
       setTimeout(() => {
         if (previousUser !== user?.id) {
+          $("#dialog").close();
+          $("#dialog-body").innerHTML = "";
           data = { tasks: [], profiles: [], submissions: [], awards: [] };
           render();
         }
@@ -1210,11 +1314,6 @@ async function init() {
         { event: "*", schema: "public", table: "guild_" + table },
         () => scheduleLoad(),
       );
-    channel.on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "guild_task_preview" },
-      () => { if (!user) scheduleLoad(); },
-    );
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         load();
@@ -1223,10 +1322,6 @@ async function init() {
       }
     });
     addEventListener("focus", () => load());
-    // 游客视图没有实时推送：页面可见时每 3 分钟补读一次，跟上原表同步。
-    setInterval(() => {
-      if (!user && document.visibilityState === "visible") load();
-    }, 180000);
     addEventListener("online", () => load());
   } catch (e) {
     $("#connection").textContent = "连接失败";
@@ -1257,7 +1352,7 @@ function taskArtist(t) {
   return t.assignee
     ? name(t.assignee)
     : t.artist_name
-      ? `${t.artist_name}（未关联账号）`
+      ? t.artist_name
       : t.status === "imported"
         ? t.source_record?.artist || "未分配画师"
         : "未认领";
@@ -1635,7 +1730,7 @@ function newTask(task = null) {
   };
 }
 // 稿件展示：已交稿（待验收）和已完成的作品，加上金山表里登记了终稿的卡。
-// 作品图片在私有存储桶里，只给登录成员签发临时链接；游客只看到标题。
+// 原稿仅本人和管理员可读；其他成员使用独立水印预览，游客不读取稿件。
 let galleryFilter = "all";
 function isRevision(s) {
   return s.submission_kind ? s.submission_kind === "revision" : !String(s.note || "").startsWith("历史稿件补传：");
@@ -1644,14 +1739,14 @@ function galleryItems() {
   const items = [];
   for (const t of data.tasks) {
     if (t.status === "done" || t.status === "submitted") {
-      const subs = data.submissions
+      const subs = gallerySubmissions(t)
         .filter((s) => s.task_id === t.id && !s.withdrawn_at)
         .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
       const award = data.awards.find((a) => a.task_id === t.id);
       const sub = (award && subs.find((s) => s.id === award.submission_id)) || subs.find(isRevision) || subs[0] || null;
       items.push({ t, sub, kind: t.status, at: sub?.created_at || t.updated_at || t.created_at });
     } else if (t.status === "imported" && sourceState(t) === "final") {
-      const sub = data.submissions.filter(s => s.task_id === t.id && !s.withdrawn_at).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null;
+      const sub = gallerySubmissions(t).filter(s => s.task_id === t.id && !s.withdrawn_at).sort((a,b) => Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null;
       items.push({ t, sub, kind: "sheet", at: sub?.created_at || t.updated_at || t.created_at });
     }
   }
@@ -1664,12 +1759,16 @@ function workTile({ t, sub, kind }) {
   const cover = sub && uploadedImagePath(sub.url)?.endsWith(".psd")
     ? data.submissions.filter(s => s.task_id === t.id && !s.withdrawn_at && /\.(png|jpg|webp)$/.test(uploadedImagePath(s.url) || "")).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0] || sub
     : sub;
-  const path = cover && uploadedImagePath(cover.url);
+  const preview = (data.previews || []).find(p => p.id === sub?.id) || (data.previews || []).filter(p => p.task_id === t.id).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0];
+  const path = canReadOriginal(t) && cover && uploadedImagePath(cover.url);
   const badge = { done: "已验收", submitted: "待验收", sheet: "待验收" }[kind];
   // 每张作品都署名：成员看账号昵称 / 表格名字，游客看预览里的署名。
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
-  const art = path?.endsWith(".psd")
+  const art = !canReadOriginal(t)
+    ? preview ? `<img data-preview-path="${esc(preview.preview_path)}" alt="${esc(t.title)} · 水印预览">`
+      : '<div class="work-ph"><em>水印预览暂未提供</em></div>'
+    : path?.endsWith(".psd")
     ? `<div class="work-ph"><span class="work-ph-mark">PSD</span><em>源文件 · 点开下载</em></div>`
     : path
     ? `<img data-work-path="${esc(path)}" alt="${esc(t.title)}">`
@@ -1677,7 +1776,7 @@ function workTile({ t, sub, kind }) {
       ? `<div class="work-ph"><span class="work-ph-mark">↗</span><em>外链作品 · 点开查看</em></div>`
       : `<div class="work-ph"><span class="work-seal">${esc(String(t.title).slice(0, 1))}</span>${scene ? `<p class="work-scene">「${esc(scene)}」</p>` : ""}<em>${kind === "sheet" || t.source_record?.status === "已递交终稿" ? "终稿等待补传" : guest ? "登录后可看作品" : "作品整理中"}</em></div>`;
   const when = sub ? new Date(sub.created_at).toLocaleDateString("zh-CN") : "";
-  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info">${kind === "sheet" ? '<small class="tag">金山表登记</small>' : ""}<h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)}` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
+  return `<button class="work ${kind}" data-task="${esc(t.id)}"><div class="work-art${path || preview ? " has-img" : ""}">${art}<span class="work-badge">${badge}</span></div><div class="work-info">${kind === "sheet" ? '<small class="tag">金山表登记</small>' : ""}<h3>${esc(t.title)}</h3><p class="work-credit">${artist ? `✎ ${esc(artist)}` : "署名待补"}</p>${when ? `<p>${esc(when)} 交稿</p>` : ""}</div></button>`;
 }
 function renderGallery() {
   const all = galleryItems();
@@ -1701,6 +1800,15 @@ function renderGallery() {
   );
   layoutWorkGrid();
   void loadWorkImages();
+  void showSharedPreviews();
+  const missing = previewCandidates();
+  if (!demo && profile?.active && missing.length) {
+    const note = document.createElement('p');
+    note.className = 'muted gallery-note';
+    note.innerHTML = `<button class="outline" id="generate-previews">补齐水印预览（${missing.length} 份）</button><span id="preview-progress" role="status"></span>`;
+    $("#list").append(note);
+    $("#generate-previews").onclick = generateMissingPreviews;
+  }
 }
 // 稿件展示瀑布流：网格按 4px 小行排列，每张卡按自己的实际高度占行数，
 // 所以图片原比例显示、阅读顺序仍是从左到右；图片加载或窗口变化时自动重排。
@@ -1928,79 +2036,26 @@ async function adminRPC(name, args, demoAction) {
 function boundNames(id) {
   return (data.aliases || []).filter((a) => a.artist_id === id).map((a) => a.artist_name);
 }
-function artistIdentityRows() {
-  const rows = new Map();
-  const add = raw => {
-    const label = String(raw || "").trim();
-    if (!label) return null;
-    if (!rows.has(label)) rows.set(label, {label, tasks: [], heldPoints: 0});
-    return rows.get(label);
-  };
-  for (const t of data.tasks) {
-    // Removed source snapshots alone must not create a current binding request.
-    const labels = new Set([t.artist_name, !t.source_removed_at && t.source_record?.artist].filter(Boolean).map(n=>String(n).trim()));
-    for (const label of labels) add(label)?.tasks.push(t);
-  }
-  for (const a of data.awards) if (!a.artist_id && a.artist_name) { const row=add(a.artist_name); if(row) row.heldPoints += Number(a.points || 0); }
-  for (const a of data.aliases || []) add(a.artist_name);
-  return [...rows.values()].map(row => ({...row,
-    binding: (data.aliases || []).find(a=>a.artist_name===row.label),
-    needsBinding: row.heldPoints>0 || row.tasks.some(t=>(!t.assignee && String(t.artist_name || "").trim()===row.label) || (t.status==="imported" && !t.source_removed_at && String(t.source_record?.artist || "").trim()===row.label)),
-    candidates: data.profiles.filter(p=>p.name.trim()===row.label),
-  })).sort((a,b)=>Number(!!a.binding)-Number(!!b.binding)||a.label.localeCompare(b.label,"zh-CN"));
-}
-function memberIdentityLabel(p, rows) {
-  if (data.aliasesUnavailable) return "关联信息读取失败";
-  if (boundNames(p.id).length) return "已关联署名";
-  if (rows.some(r=>!r.binding && r.needsBinding && r.label===p.name.trim())) return "有同名署名，待核对";
-  return "网站成员 · 无需绑定";
-}
 function manageMembers() {
-  const rows = artistIdentityRows();
-  const known = !data.aliasesUnavailable;
-  const pending = rows.filter(r=>!r.binding && r.needsBinding).length;
-  modal("画师管理", `<p>网站成员可以直接参与网站任务，不必出现在金山表里。只有需要认领表格署名下的任务或暂存贡献时，才需要关联账号。</p>
-    <p class="muted">同名只是核对线索，不代表同一个人；没有同名记录也不代表没有其他署名。</p>
-    <p class="muted">表格资料最后同步：${data.sync?.state?.last_success_at ? esc(new Date(data.sync.state.last_success_at).toLocaleString('zh-CN')) : '尚未确认'}。${!data.sync?.state?.last_success_at || Date.now()-Date.parse(data.sync.state.last_success_at)>30*60*1000 ? '同步延迟或状态未知，请打开金山原表核对最新安排。' : ''}</p>
-    ${!known ? '<p role="alert">账号关联信息未读取成功，暂不判断谁需要关联。请关闭窗口并刷新后重试。</p>' : ''}
-    <label class="field">查找成员或署名<input id="member-search" type="search" placeholder="昵称、账号尾号、表格署名"></label>
+  modal("画师管理", `<p>金山表和网站认领的任务都会按现有负责画师显示，无需逐个核对署名。</p>
+    <label class="field">查找成员<input id="member-search" type="search" placeholder="昵称、账号尾号"></label>
     <h3>网站成员 · ${data.profiles.length}</h3>
-    <div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>账号状态与署名</th><th>操作</th></tr></thead><tbody>${[...data.profiles].sort((a,b)=>Number(a.active)-Number(b.active)||a.name.localeCompare(b.name,"zh-CN")).map(p=>{
-      const names = boundNames(p.id);
-      const duplicate = data.profiles.filter(other=>other.name.trim()===p.name.trim()).length>1;
-      return `<tr data-identity-search="${esc([p.name,p.id.slice(-6),...names].join(' ').toLowerCase())}"><td>${esc(p.name)}${duplicate?' <span class="unbound-mark">存在同名账号</span>':''}<small>账号尾号 ${esc(p.id.slice(-6))}</small></td><td>${p.role==='admin'?'负责人':p.active?'已开通':'待开通 / 已停用'}<small>${esc(memberIdentityLabel(p,rows))}${names.length?'：'+names.map(esc).join('、'):''}</small></td><td>${p.role==='artist'?`<button class="outline" data-member="${esc(p.id)}">管理账号</button>`:'—'}</td></tr>`;
-    }).join('')}</tbody></table></div>
-    <h3>任务署名${known?' · '+pending+' 个待核对':''}</h3>
-    <p class="muted">来自网站保存的表格资料、任务署名及暂存贡献。同步延迟时可能不是最新名单；画师不在这里也可以正常使用网站。</p>
-    <p><a href="https://www.kdocs.cn/l/chYu5VON9OzX" target="_blank" rel="noopener noreferrer">打开金山原表核对 ↗</a> · 在「全部卡牌」查找「负责画师」，同时核对卡名和同步 ID。</p>
-    <div class="table-wrap"><table class="admin-table"><thead><tr><th>署名 / 关联状态</th><th>关联内容</th><th>核对入口</th></tr></thead><tbody>${rows.map((r,i)=>{
-      const account = r.binding && data.profiles.find(p=>p.id===r.binding.artist_id);
-      const state = !known?'关联情况未知':r.binding?`已关联：${account?.name || '账号资料未加载'}${account?' · '+account.id.slice(-6):''}`:!r.needsBinding?'已按任务归属登记，无需补绑':r.candidates.length>1?'多个同名账号，需核对本人':r.candidates.length===1?'有同名账号，尚未确认身份':'尚未关联，可使用不同昵称的账号';
-      return `<tr data-identity-search="${esc([r.label,account?.name,...r.candidates.map(p=>p.name)].join(' ').toLowerCase())}"><td>${esc(r.label)}<small>${esc(state)}</small></td><td>${r.tasks.length} 份相关任务<small>${r.heldPoints} 暂存贡献分</small></td><td><button class="outline" data-identity="${i}">查看关联内容</button></td></tr>`;
-    }).join('') || '<tr><td colspan="3">暂无任务署名；网站成员仍可正常接任务。</td></tr>'}</tbody></table></div>
-    <p id="member-search-empty" hidden>没有匹配的成员或署名。</p>`);
+    <div class="table-wrap"><table class="admin-table"><thead><tr><th>昵称 / 账号尾号</th><th>账号状态</th><th>操作</th></tr></thead><tbody>${[...data.profiles].sort((a,b)=>Number(a.active)-Number(b.active)||a.name.localeCompare(b.name,"zh-CN")).map(p=>
+      `<tr data-identity-search="${esc([p.name,p.id.slice(-6)].join(' ').toLowerCase())}"><td>${esc(p.name)}<small>账号尾号 ${esc(p.id.slice(-6))}</small></td><td>${p.role==='admin'?'负责人':p.active?'已开通':'待开通 / 已停用'}</td><td>${p.role==='artist'?`<button class="outline" data-member="${esc(p.id)}">管理账号</button>`:'—'}</td></tr>`
+    ).join('')}</tbody></table></div><p id="member-search-empty" hidden>没有匹配的成员。</p>`);
   document.querySelectorAll('[data-member]').forEach(b=>b.onclick=()=>editMember(b.dataset.member));
-  document.querySelectorAll('[data-identity]').forEach(b=>b.onclick=()=>identityDetail(rows[Number(b.dataset.identity)]));
   $('#member-search').oninput = e => {
     const q=e.target.value.trim().toLowerCase(); let shown=0;
     document.querySelectorAll('[data-identity-search]').forEach(row=>{row.hidden=!row.dataset.identitySearch.includes(q);if(!row.hidden) shown++;});
     $('#member-search-empty').hidden=shown>0;
   };
 }
-function identityDetail(row) {
-  modal('核对署名：'+row.label, `<p>请核对这位画师本人，再决定是否关联。关联会影响该署名下的任务和暂存贡献，同名账号不能自动视为本人。</p>
-    <p>${row.tasks.length} 份相关任务 · ${row.heldPoints} 暂存贡献分</p>
-    ${row.tasks.map(t=>`<p><button class="outline" data-identity-task="${esc(t.id)}">${esc(t.title)} · ${esc(taskLabel(t))}</button><small> 当前负责：${esc(taskArtist(t))}${t.source_record?.row?' · 原表第 '+esc(t.source_record.row)+' 行':''}${t.kdocs_card_id?' · 卡牌 ID：'+esc(t.kdocs_card_id):''}</small></p>`).join('') || '<p>没有可查看的任务；请先核对历史贡献归属。</p>'}
-    <p class="muted">在相关任务的「账号关联」处选择本人账号。若当前任务已经分配给其他账号，先核实归属，勿用改名方式强行合并。</p><button class="outline" id="back-members">返回画师管理</button>`);
-  document.querySelectorAll('[data-identity-task]').forEach(b=>b.onclick=()=>detail(b.dataset.identityTask));
-  $('#back-members').onclick=manageMembers;
-}
 function editMember(id) {
   const p = data.profiles.find((p) => p.id === id);
   if (!p) return;
   modal(
     "管理画师",
-    `<form id="member-form"><p class="muted">账号尾号 ${esc(p.id.slice(-6))} · 请核对本人</p><label class="field">画师昵称<input name="name" maxlength="40" required value="${esc(p.name)}"></label><label class="field">成员状态<select name="active"><option value="true" ${p.active ? "selected" : ""}>开通成员功能</option><option value="false" ${!p.active ? "selected" : ""}>待开通 / 停用</option></select></label><p class="muted">开通后可查看团队任务及作品链接。有未完成任务时不能停用。</p><button class="primary">保存</button></form>`,
+    `<form id="member-form"><p class="muted">账号尾号 ${esc(p.id.slice(-6))} · 请核对本人</p><label class="field">画师昵称<input name="name" maxlength="40" required value="${esc(p.name)}"></label><label class="field">成员状态<select name="active"><option value="true" ${p.active ? "selected" : ""}>开通成员功能</option><option value="false" ${!p.active ? "selected" : ""}>待开通 / 停用</option></select></label><p class="muted">开通后可认领任务、查看他人的水印预览，并获取自己的原稿。有未完成任务时不能停用。</p><button class="primary">保存</button></form>`,
   );
   $("#member-form").onsubmit = async (e) => {
     e.preventDefault();
