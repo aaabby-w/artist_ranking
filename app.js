@@ -767,7 +767,7 @@ function loadArtwork(img, getUrl) {
 // Originals never cross accounts. A confirmed sheet alias also represents ownership.
 function canReadOriginal(t) {
   return !!profile?.active && (profile.role === 'admin' || !!user &&
-    (t.assignee === user.id || !t.assignee && (data.aliases || []).some(a =>
+    ((data.submissions || []).some(s => s.task_id === t.id && s.artwork_owner_id === user.id) || t.assignee === user.id || !t.assignee && (data.aliases || []).some(a =>
       a.artist_id === user.id && a.artist_name === String(t.artist_name || t.source_record?.artist || '').trim())));
 }
 function gallerySubmissions(t) {
@@ -1765,9 +1765,10 @@ function workTile({ t, sub, kind }) {
   // 每张作品都署名：成员看账号昵称 / 表格名字，游客看预览里的署名。
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
-  const art = !canReadOriginal(t)
-    ? preview ? `<img data-preview-path="${esc(preview.preview_path)}" alt="${esc(t.title)} · 水印预览">`
-      : '<div class="work-ph"><em>水印预览暂未提供</em></div>'
+  const art = preview
+    ? `<img data-preview-path="${esc(preview.preview_path)}" alt="${esc(t.title)} · 水印预览">`
+    : !canReadOriginal(t)
+    ? '<div class="work-ph"><em>水印预览暂未提供</em></div>'
     : path?.endsWith(".psd")
     ? `<div class="work-ph"><span class="work-ph-mark">PSD</span><em>源文件 · 点开下载</em></div>`
     : path
