@@ -1,0 +1,57 @@
+const {PGlite}=require(process.env.PGLITE_PATH || '@electric-sql/pglite');
+const fs=require('node:fs'), assert=require('node:assert/strict');
+(async()=>{
+ const db=await PGlite.create();
+ const sql=f=>fs.readFileSync(f,'utf8').replace(/(?:create|alter) publication[^;]+;/g,'').replace('create extension pgcrypto schema extensions;','');
+ await db.exec(sql('tests/sql/supabase-stub.sql'));
+ await db.exec("alter table auth.users add raw_user_meta_data jsonb default '{}'; alter table storage.buckets add name text,add file_size_limit bigint,add allowed_mime_types text[]; grant update on storage.objects to authenticated;");
+ for(const f of ['schema.sql','002_import.sql','003_admin_tasks.sql']) await db.exec(sql('supabase/'+f));
+ await db.exec(`alter table guild_tasks add artist_name text,add source_removed_at timestamptz;
+ create table guild_artist_aliases(artist_name text primary key,artist_id uuid);
+ create table guild_task_preview(id uuid);grant select on guild_task_preview to anon,authenticated;
+ create view guild_public_tasks as select * from guild_tasks;grant select on guild_public_tasks to anon,authenticated;`);
+ for(const f of ['013_review_two_buttons.sql','014_historical_upload_and_signup.sql','021_withdraw_submission.sql','023_submission_attachments.sql']) await db.exec(sql('supabase/'+f));
+ const ids=Array.from({length:5},(_,i)=>'00000000-0000-4000-8000-'+String(i+1).padStart(12,'0'));
+ const [admin,owner,other,pending,alias]=ids;
+ for(const id of ids) await db.query('insert into auth.users(id) values($1)',[id]);
+ await db.query("update guild_profiles set active=id<>$1,role=case when id=$2 then 'admin' else 'artist' end",[pending,admin]);
+ const task=(await db.query("insert into guild_tasks(title,category,brief,points,status,assignee) values('网站任务','卡','要求',20,'submitted',$1) returning id",[owner])).rows[0].id;
+ const sheet=(await db.query("insert into guild_tasks(title,category,brief,points,status,import_key,source_record) values('表格任务','卡','要求',null,'imported','sheet-1','{\"artist\":\"笔名\",\"status\":\"已递交终稿\"}') returning id")).rows[0].id;
+ await db.query("insert into guild_artist_aliases values('笔名',$1)",[alias]);
+ const sub=(await db.query("insert into guild_submissions(task_id,author_id,url,note) values($1,$2,'https://private.example/original.png','private-code') returning id",[task,admin])).rows[0].id;
+ const original=`${admin}/${task}/original.png`,sheetOriginal=`${admin}/${sheet}/original.psd`,preview=`${task}/${sub}.jpg`;
+ for(const name of [original,sheetOriginal])await db.query("insert into storage.objects(bucket_id,name) values('guild-submissions',$1)",[name]);
+ // Existing permissive storage read policy must NOT override the new boundary.
+ await db.exec(sql('supabase/024_private_artwork.sql'));await db.exec(sql('supabase/024_private_artwork.sql'));
+ const login=async(id,role='authenticated')=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id||'']);await db.exec('set role '+role)};
+ const count=async(table,where='true')=>(await db.query(`select count(*)::int n from ${table} where ${where}`)).rows[0].n;
+ await login(other);assert.equal(await count('guild_submissions'),0);assert.equal(await count('storage.objects'),0);
+ await assert.rejects(()=>db.query('select guild_save_artwork_preview($1)',[sub]));
+ await assert.rejects(()=>db.query("insert into storage.objects(bucket_id,name) values('guild-artwork-previews',$1)",[preview]));
+ await login(owner);assert.equal(await count('guild_submissions'),1);assert.equal(await count('storage.objects'),1,'admin upload is readable by task owner');
+ await db.query("insert into storage.objects(bucket_id,name) values('guild-artwork-previews',$1)",[preview]);
+ await db.query('select guild_save_artwork_preview($1)',[sub]);await db.query('select guild_save_artwork_preview($1)',[sub]);
+ await login(other);assert.equal(await count('storage.objects'),1,'only watermarked preview');
+ const catalog=(await db.query('select * from guild_list_artwork_previews()')).rows;
+ assert.equal(catalog.length,1);assert.equal(catalog[0].preview_path,preview);assert(!('url' in catalog[0]));assert(!('note' in catalog[0]));
+ await assert.rejects(()=>db.query("update storage.objects set name=name where bucket_id='guild-artwork-previews' returning *").then(r=>{assert.equal(r.rows.length,1)}));
+ await login(alias);assert.equal(await count('storage.objects',"bucket_id='guild-submissions'"),1,'confirmed sheet alias gets own PSD');
+ await login(admin);assert.equal(await count('guild_submissions'),1);assert.equal(await count('storage.objects'),3);
+ assert.equal((await db.query("select guild_original_path_allowed('bad/not-uuid/file.png') ok")).rows[0].ok,true);
+ await login(other);assert.equal((await db.query("select guild_original_path_allowed('bad/not-uuid/file.png') ok")).rows[0].ok,false);
+ await login(pending);assert.equal(await count('guild_tasks'),0);assert.equal(await count('guild_submissions'),0);assert.equal(await count('storage.objects'),0);assert.equal((await db.query('select * from guild_list_artwork_previews()')).rows.length,0);
+ await assert.rejects(()=>db.query("select guild_action($1,'claim')",[task]));
+ for(const role of ['authenticated','anon']){
+  await login(role==='anon'?null:pending,role);
+  for(const table of ['guild_task_preview','guild_public_tasks'])await assert.rejects(()=>db.query('select * from '+table));
+ }
+ await login(null,'anon');await assert.rejects(()=>db.query('select * from guild_submissions'));await assert.rejects(()=>db.query('select * from guild_list_artwork_previews()'));
+ await db.exec('reset role');await db.query('update guild_submissions set withdrawn_at=now() where id=$1',[sub]);
+ await login(other);assert.equal(await count('storage.objects'),0);assert.equal((await db.query('select * from guild_list_artwork_previews()')).rows.length,0);
+ await db.exec('reset role');
+ const newcomer='00000000-0000-4000-8000-000000000099';
+ await db.query(`insert into auth.users(id,raw_user_meta_data) values($1,'{"artist_name":"新人","role":"admin","active":true}')`,[newcomer]);
+ const p=(await db.query('select role,active from guild_profiles where id=$1',[newcomer])).rows[0];assert.equal(p.role,'artist');assert.equal(p.active,false);
+ assert.equal(await count('guild_submissions'),1);assert.equal(await count('storage.objects',"bucket_id='guild-submissions'"),2);
+ await db.close();console.log('PASS: repeatable migration; owner/admin originals; other member preview only; sheet alias; inactive/guest denied; no privilege spoofing; withdrawal hides previews; originals preserved');
+})().catch(e=>{console.error(e);process.exit(1)});

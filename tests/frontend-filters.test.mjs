@@ -9,7 +9,7 @@ const els = new Map();
 const el = (key) => {
   if (!els.has(key)) els.set(key, { key, innerHTML: "", textContent: "", hidden: false, value: "", dataset: {},
     classList: { toggle() {}, add() {}, remove() {} }, style: {}, setAttribute() {}, addEventListener() {}, after(x) { els.set("#import-summary", x); },
-    querySelector: () => null, querySelectorAll: () => [], focus() {}, setSelectionRange() {}, showModal() {}, close() {}, open: false });
+    append() {}, querySelector: () => null, querySelectorAll: () => [], focus() {}, setSelectionRange() {}, showModal() {}, close() {}, open: false });
   return els.get(key);
 };
 const document = { body: el("body"), addEventListener() {}, querySelector: (s) => el(s), querySelectorAll: () => [], createElement: () => el("#import-summary"), visibilityState: "visible" };
@@ -66,9 +66,9 @@ const guestRows = tasks.filter((t) => !(t.status === "imported" && t.source_remo
     artist_credit: { 3: "画师乙", 8: "画师丙", 9: "画师丙" }[id] || null }));
 T.set({ user: undefined, profile: null, view: "board", filter: "all", data: { ...base, profiles: [], tasks: guestRows } });
 T.render();
-assert.deepEqual(counts(), { 全部记录: 9, 待认领: 3, 创作中: 2, 待验收: 2, 待修改: 1, 已完成: 1 });
-assert.doesNotMatch(el("#list").innerHTML, /画师甲|画师乙|原表/);
-console.log("  ✓ 游客：同样的合并列表，不显示任何画师名");
+assert.match(el("#list").innerHTML, /登录并开通成员权限/);
+assert.doesNotMatch(el("#list").innerHTML, /画师甲|画师乙|原表|data-task/);
+console.log("  ✓ 游客：仅登录入口，不显示任务或画师名");
 
 // Admin workbench
 T.set({ user: { id: "a1" }, profile: null, view: "admin", filter: "all", adminFilter: "open", data: { ...base, tasks } });
@@ -105,16 +105,16 @@ const wall = el("#list").innerHTML;
 assert.equal(el("#count").textContent, "3 份稿件");
 assert.deepEqual([...wall.matchAll(/class="work (\w+)" data-task="(\d+)"/g)].map((m) => m[1] + ":" + m[2]), ["done:9", "submitted:8", "sheet:3"]);
 assert.match(wall, /data-work-path="00000000-0000-4000-8000-000000000001\/00000000-0000-4000-8000-000000000008\/00000000-0000-4000-8000-000000000009\.png"/);
-assert.match(wall, /待验收<span>2/); assert.match(wall, /金山表登记/); assert.doesNotMatch(wall, /data-gallery-filter="sheet"/); assert.match(wall, /终稿等待补传/); assert.match(wall, /✎ 画师丙</); assert.match(wall, /✎ 画师乙</); noSheetWord(wall);
+assert.match(wall, /待验收<span>2/); assert.match(wall, /金山表登记/); assert.doesNotMatch(wall, /data-gallery-filter="sheet"/); assert.match(wall, /水印预览暂未提供/); assert.match(wall, /✎ 画师丙</); assert.match(wall, /✎ 画师乙</); noSheetWord(wall);
 assert.equal((wall.match(/class="work-credit">✎ /g) || []).length, 3);
 console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组，每张都署名；上传图片走私有签名链接");
 T.set({ user: undefined, profile: null, view: "gallery", filter: "all", data: { ...base, profiles: [], submissions: [], tasks: guestRows } });
 T.render();
 const guestWall = el("#list").innerHTML;
-assert.equal(el("#count").textContent, "3 份稿件");
-assert.equal((guestWall.match(/class="work-credit">✎ /g) || []).length, 3); assert.match(guestWall, /✎ 画师乙</);
-assert.doesNotMatch(guestWall, /画师甲|data-work-path/); assert.match(guestWall, /登录后可以看作品原图/);
-console.log("  ✓ 游客的稿件展示也逐张署名；作品原图仍需登录");
+assert.equal(el("#count").textContent, "");
+assert.doesNotMatch(guestWall, /work-credit|data-work-path|画师乙/);
+assert.match(guestWall, /登录并开通成员权限/);
+console.log("  ✓ 游客不能查看稿件展示");
 T.set({ user: { id: "u1" }, profile: null, view: "gallery", filter: "all", data: { ...base, tasks: tasks.filter((t) => !["3", "8", "9"].includes(t.id)) } });
 T.render();
 assert.match(el("#list").innerHTML, /还没有交上来的稿件/);
@@ -226,11 +226,11 @@ console.log("PASS: current artist search, withdrawn gallery, synchronized reward
 // An explicit refresh must never announce success after a failed request.
 let toasts=[];
 ctx.recordToast=(message,isError)=>toasts.push({message,isError});
-vm.runInContext('toast=recordToast; user=null; client={from:()=>({select:()=>({order:async()=>({error:new Error("offline")})})})}',ctx);
+vm.runInContext('toast=recordToast; user={id:"a1"}; client={from:()=>({select:()=>({order:async()=>({error:new Error("offline")})})})}',ctx);
 await el("#refresh").onclick();
 assert.equal(toasts.some(t=>t.message==="已重新读取"),false);
 assert.equal(toasts.some(t=>t.isError),true);
-vm.runInContext('client={from:()=>({select:()=>({order:async()=>({data:[],error:null})})})}',ctx);
+vm.runInContext('user=null;client={from:()=>{throw Error("guest must not query")}}',ctx);
 await el("#refresh").onclick();
 assert.equal(toasts.some(t=>t.message==="已重新读取"),true);
 console.log("PASS: refresh failure stays an error, successful refresh reports success");
@@ -246,35 +246,22 @@ vm.runInContext('delete data.submissions[1].submission_kind; data.submissions[1]
 assert.equal(vm.runInContext('galleryItems()[0].sub.id',ctx),"revision");
 console.log("PASS: attachment upload does not replace the revision or its date, before/after migration");
 
-// Website-only members are valid; source identity is not the account roster.
-const identitiesData={...base,tasks:[
- {id:'source',title:'卡甲',status:'imported',source_record:{artist:'重名',row:4}},
- {id:'old',title:'已移除卡',status:'imported',source_removed_at:'2026-11-01',source_record:{artist:'旧名字'}},
- {id:'manual',title:'手动任务',status:'active',artist_name:'站外画师'},
- {id:'credited',title:'已归属任务',status:'done',assignee:'member',source_record:{artist:'网页画师'}},
-],profiles:[
- {id:'admin',name:'负责人',role:'admin',active:true},
- {id:'member',name:'网页画师',role:'artist',active:true},
- {id:'one',name:'重名',role:'artist',active:true},
- {id:'two',name:'重名',role:'artist',active:true},
- {id:'linked',name:'另一昵称',role:'artist',active:true},
-],aliases:[{artist_name:'旧笔名',artist_id:'linked'}],awards:[{artist_name:'仅有贡献',artist_id:null,points:20}]};
-T.set({user:{id:'admin'},profile:identitiesData.profiles[0],view:'admin',filter:'all',data:identitiesData});
+// Simple member roster: no source-name audit or forced identity linking.
+T.set({user:{id:'a1'},profile:base.profiles[1],view:'admin',filter:'all',data:{...base,tasks}});
 vm.runInContext('manageMembers()',ctx);
-const membersHTML=el('#dialog-body').innerHTML;
-assert.match(membersHTML,/网站成员 · 无需绑定/);
-assert.match(membersHTML,/已按任务归属登记，无需补绑/);
-assert.equal(vm.runInContext('memberIdentityLabel(data.profiles[1],artistIdentityRows())',ctx),'网站成员 · 无需绑定');
-assert.match(membersHTML,/存在同名账号/);
-assert.match(membersHTML,/多个同名账号，需核对本人/);
-assert.match(membersHTML,/仅有贡献/);
-assert.doesNotMatch(membersHTML,/旧名字/);
-assert.match(membersHTML,/已关联：另一昵称/);
-const bindingHTML=T.artistBindHTML(identitiesData.tasks[0],true);
-assert.doesNotMatch(bindingHTML,/<option[^>]*selected/,'same name must never preselect an account');
-assert.equal(vm.runInContext('artistIdentityRows().find(r=>r.label==="仅有贡献").heldPoints',ctx),20);
-assert.equal(vm.runInContext('taskArtist(data.tasks[2])',ctx),'站外画师（未关联账号）');
-vm.runInContext('data.aliasesUnavailable=true;manageMembers()',ctx);
-assert.match(el('#dialog-body').innerHTML,/关联信息读取失败/);
-assert.doesNotMatch(el('#dialog-body').innerHTML,/个待核对|网站成员 · 无需绑定/);
-console.log('PASS: website membership independent of sheet, duplicate names require verification, no auto-selection, failed alias read stays unknown');
+assert.match(el('#dialog-body').innerHTML,/网站成员 · 2/);
+assert.doesNotMatch(el('#dialog-body').innerHTML,/任务署名|个待核对|查看关联内容/);
+assert.equal(vm.runInContext('taskArtist({artist_name:"站外画师"})',ctx),'站外画师');
+const bindingHTML=T.artistBindHTML(tasks[1],true);
+assert.doesNotMatch(bindingHTML,/<option[^>]*selected/,'same name never grants original access');
+console.log('PASS: member roster has no source identity audit; task credits preserved');
+
+// Even stale original submission data cannot render another member's original.
+T.set({user:{id:'u1'},profile:base.profiles[0],view:'gallery',filter:'all',data:{...base,tasks:[{...galleryTask,assignee:'someone-else'}],submissions:[{id:'private',task_id:galleryTask.id,url:upload}],previews:[{id:'private',task_id:galleryTask.id,preview_path:'task/sub.jpg',created_at:'2026-11-01'}]}});
+const privateTile=T.workTile({t:{...galleryTask,assignee:'someone-else'},sub:{id:'private',url:upload},kind:'done'});
+assert.match(privateTile,/data-preview-path="task\/sub.jpg"/);
+assert.doesNotMatch(privateTile,/data-work-path|guild-submissions|源文件 · 点开下载/);
+assert.equal(vm.runInContext('previewDimensions(4000,2000).width',ctx),640);
+assert.equal(vm.runInContext('previewDimensions(4000,2000).height',ctx),320);
+assert.equal(vm.runInContext('previewDimensions(100,200).height',ctx),200);
+console.log('PASS: other-member tile contains only preview path; low-res scaling never enlarges originals');

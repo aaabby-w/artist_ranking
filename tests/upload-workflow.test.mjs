@@ -38,6 +38,7 @@ assert.equal(calls.filter(c=>c==='guild_admin_submit').length,2);
 console.log('PASS: validate before mutation, block duplicate submit, restore controls on failure, reuse upload on retry');
 
 T.set({user:undefined,profile:null,client,data:{tasks:[{id:'guest-task',title:'游客任务',status:'active'}],profiles:[],submissions:[],awards:[]}});
+el('#dialog-body').innerHTML='';
 T.detail('guest-task');
 assert.doesNotMatch(el('#dialog-body').innerHTML,/submit-form|归还任务/);
 console.log('PASS: missing guest and assignee IDs do not grant owner controls');
