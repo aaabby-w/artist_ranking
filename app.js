@@ -195,6 +195,7 @@ let cfg = window.GUILD_CONFIG,
   query = "",
   data = { tasks: [], profiles: [], submissions: [], awards: [] },
   busy = false,
+  accessLoad = "loading",
   seq = 0,
   channel;
 const DEMO = "art-guild-demo-v1",
@@ -382,7 +383,7 @@ function render() {
   $("#notice").textContent = demo
     ? "演示会馆 · 当前使用示例任务，本机保存；可切换画师 / 负责人体验流程。"
     : user && !profile?.active
-      ? "账号已登录，等待负责人开通成员权限。"
+      ? accessMessage()
       : !user
         ? "请先登录；新账号由负责人开通后，可查看任务和参与创作。"
         : "欢迎来到会馆。按自己的时间认领，验收通过后自动记录贡献。";
@@ -443,8 +444,9 @@ function render() {
     $("#stats").innerHTML = "";
     $("#top").innerHTML = "";
     $("#count").textContent = "";
-    $("#list").innerHTML = `<div class="empty">${user ? "账号已登录，等待负责人开通成员权限。" : "登录并开通成员权限后，可以查看任务和作品预览。"}<br><button class="primary" id="access-account">${user ? "查看我的账号" : "登录会馆"}</button></div>`;
+    $("#list").innerHTML = `<div class="empty">${user ? accessMessage() : "登录并开通成员权限后，可以查看任务和作品预览。"}<br><button class="primary" id="access-account">${user ? "查看我的账号" : "登录会馆"}</button>${user ? '<button class="outline" id="access-refresh">刷新账号状态</button>' : ""}</div>`;
     $("#access-account").onclick = account;
+    if (user) $("#access-refresh").onclick = () => load();
     return;
   }
   updateTaskFilters();
@@ -497,6 +499,12 @@ function render() {
     (MOBILE.matches ? waterfall(cards, tasks) : cards.join("")) ||
     '<div class="empty">这里暂时没有任务。<br>可以换个筛选，或去公告栏认领喜欢的任务。</div>';
 }
+function accessMessage() {
+  if (accessLoad === "error") return "账号状态读取失败，请检查网络后刷新重试。";
+  if (accessLoad === "loading") return "正在读取账号状态，请稍候。";
+  if (!profile) return "未找到账号资料，请联系负责人核查账号尾号。";
+  return "账号尚未开通或已停用，请联系负责人核对账号尾号。";
+}
 // 卡片介绍：金山同步的介绍按字段分行（原文已用换行分隔；没有换行时按字段标签断开）。
 // 每个字段一个 span，电脑端仍连成一段，手机端每个字段另起一行。只影响卡片显示。
 const BRIEF_LABELS = /\s+(?=(?:画面效果|角色|技能介绍|卡牌类型|机制简述|机制简介|效果 ?\/ ?数值|卡牌消耗（非贡献分）)：)/;
@@ -538,6 +546,7 @@ async function load() {
   }
   if (!user) {
     ++seq;
+    accessLoad = "loading";
     data = {tasks: [], profiles: [], submissions: [], awards: [], campaign: [], previews: []};
     $("#connection").textContent = "请登录会馆";
     render();
@@ -575,14 +584,18 @@ async function load() {
     if(n !== seq) return false;
     data.previews = previews.data || [];
     data.previewsUnavailable = !!previews.error;
+    accessLoad = "ready";
     void refreshInbox();
     $("#connection").textContent = "● 已连接";
     render();
     return true;
   } catch (e) {
     if (n !== seq) return false;
+    accessLoad = "error";
+    data = {tasks: [], profiles: [], submissions: [], awards: [], campaign: [], previews: []};
     $("#connection").textContent = "读取失败 · 点击刷新重试";
     error(e);
+    render();
     return false;
   }
 }
@@ -776,7 +789,7 @@ function gallerySubmissions(t) {
 const PREVIEW_BUCKET = 'guild-artwork-previews';
 function sharedPreviewsHTML(t) {
   const previews = (data.previews || []).filter(p => p.task_id === t.id);
-  return `<div class="submission"><p>仅展示带水印的低清预览。原稿、PSD 和网盘链接仅本人及负责人可取。</p>${previews.length ? previews.map(p=>`<div class="art-preview"><img data-preview-path="${esc(p.preview_path)}" alt="${esc(t.title)} · 水印预览"></div>`).join('') : '<p>水印预览暂未提供。</p>'}</div>`;
+  return `<div class="submission"><p>仅展示低清预览。原稿、PSD 和网盘链接仅本人及负责人可取。</p>${previews.length ? previews.map(p=>`<div class="art-preview"><img data-preview-path="${esc(p.preview_path)}" alt="${esc(t.title)} · 预览"></div>`).join('') : '<p>预览暂未提供。</p>'}</div>`;
 }
 async function showSharedPreviews() {
   if (demo || !profile?.active) return;
@@ -791,7 +804,7 @@ function previewDimensions(width,height) {
   const scale = Math.min(1,640/Math.max(width,height));
   return {width:Math.max(1,Math.round(width*scale)),height:Math.max(1,Math.round(height*scale))};
 }
-async function watermarkedPreview(blob) {
+async function makeArtworkPreview(blob) {
   const bitmap = await createImageBitmap(blob);
   try {
     const size = previewDimensions(bitmap.width,bitmap.height);
@@ -800,15 +813,6 @@ async function watermarkedPreview(blob) {
     const ctx=canvas.getContext('2d');
     ctx.fillStyle='#eee8df';ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
-    ctx.save();
-    ctx.translate(canvas.width/2,canvas.height/2);ctx.rotate(-Math.PI/6);
-    ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.lineWidth=3;
-    ctx.strokeStyle='rgba(0,0,0,.35)';ctx.fillStyle='rgba(255,255,255,.65)';
-    const extent=Math.max(canvas.width,canvas.height)*1.5;
-    for(let y=-extent;y<=extent;y+=100) for(let x=-extent;x<=extent;x+=230){
-      ctx.strokeText('众生绘卷 · 仅供预览',x,y);ctx.fillText('众生绘卷 · 仅供预览',x,y);
-    }
-    ctx.restore();
     const result=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.72));
     if(!result || result.size>524288) throw Error('预览生成失败');
     return result;
@@ -826,7 +830,7 @@ async function createArtworkPreview(sub, suppliedFile) {
     if(response.error) throw response.error;
     file=response.data;
   }
-  const preview=await watermarkedPreview(file);
+  const preview=await makeArtworkPreview(file);
   if(user?.id!==userId) throw Error('账号已切换，请重试');
   const path=`${sub.task_id}/${sub.id}.jpg`;
   const upload=await client.storage.from(PREVIEW_BUCKET).upload(path,preview,{contentType:'image/jpeg',upsert:true});
@@ -843,16 +847,16 @@ async function refreshPreviews() {
   data.previews=result.data || [];
   if(view==='gallery') renderGallery();
 }
-function previewCandidates() {
+function previewCandidates(includeExisting = false) {
   return data.submissions.filter(s=>!s.withdrawn_at && /\.(png|jpg|webp)$/i.test(uploadedImagePath(s.url)||'') &&
-    !(data.previews||[]).some(p=>p.id===s.id) && data.tasks.some(t=>t.id===s.task_id && !t.source_removed_at && canReadOriginal(t)));
+    (includeExisting || !(data.previews||[]).some(p=>p.id===s.id)) && data.tasks.some(t=>t.id===s.task_id && !t.source_removed_at && canReadOriginal(t)));
 }
 let previewsBusy=false;
-async function generateMissingPreviews() {
+async function generateMissingPreviews(includeExisting = false) {
   if(previewsBusy) return;
   previewsBusy=true;
-  const actor=user?.id, candidates=previewCandidates();
-  const button=$('#generate-previews'),status=$('#preview-progress');
+  const actor=user?.id, candidates=previewCandidates(includeExisting);
+  const button=includeExisting ? $('#rebuild-previews') : $('#generate-previews'),status=button?.nextElementSibling;
   if(button) button.disabled=true;
   let done=0,failed=0;
   try {
@@ -861,7 +865,7 @@ async function generateMissingPreviews() {
       if(status) status.textContent=` 正在生成 ${done+failed+1}/${candidates.length}，请保持页面打开…`;
       try {await createArtworkPreview(sub);done++;} catch {failed++;}
     }
-    if(user?.id===actor){await refreshPreviews();toast(`已生成 ${done} 份水印预览${failed?'，'+failed+' 份未成功，可重试':''}。`,failed>0);}
+    if(user?.id===actor){await refreshPreviews();toast(`已生成 ${done} 份预览${failed?'，'+failed+' 份未成功，可重试':''}。`,failed>0);}
   } finally {previewsBusy=false;if(button?.isConnected) button.disabled=false;}
 }
 
@@ -1062,7 +1066,7 @@ function detail(id) {
         const saved = data.submissions.find(s => s.task_id === id && s.url === url && !s.withdrawn_at);
         if (saved && !uploadedImagePath(saved.url)?.endsWith('.psd')) {
           try { await createArtworkPreview(saved, file); await refreshPreviews(); }
-          catch { toast("原稿已保存，水印预览暂未生成；可在稿件展示中重试。", true); }
+          catch { toast("原稿已保存，预览暂未生成；可在稿件展示中重试。", true); }
         }
       }
     } catch (e) {
@@ -1114,7 +1118,7 @@ function account() {
   if (user) {
     modal(
       "我的账号",
-      `<p class="detail-copy">${esc(profile?.name || user.email)}<br>${profile?.active ? "已入馆" : "等待负责人开通"}</p><form id="nickname-form"><label class="field">画师昵称<input name="name" required maxlength="40" value="${esc(profile?.name || "")}"></label><button class="primary">保存昵称</button></form><p class="muted">账号尾号：${esc(user.id.slice(-6))}，供负责人核对。</p><button id="replay-tour" class="outline">再看一次功能引导</button><div class="toggle-row"><span id="announcement-switch-label">首页公告栏<small>显示美术组阶段公告</small></span><button type="button" role="switch" id="announcement-switch" class="switch" aria-labelledby="announcement-switch-label" aria-checked="${announcementShown()}"><span class="switch-knob"></span></button></div><button id="signout" class="outline">退出登录</button>`,
+      `<p class="detail-copy">${esc(profile?.name || user.email || "当前账号")}<br>${profile?.active ? "已入馆" : accessMessage()}</p><form id="nickname-form"><label class="field">画师昵称<input name="name" required maxlength="40" value="${esc(profile?.name || "")}"></label><button class="primary">保存昵称</button></form><p class="muted">账号尾号：${esc(user.id.slice(-6))}，供负责人核对。</p><button id="replay-tour" class="outline">再看一次功能引导</button><div class="toggle-row"><span id="announcement-switch-label">首页公告栏<small>显示美术组阶段公告</small></span><button type="button" role="switch" id="announcement-switch" class="switch" aria-labelledby="announcement-switch-label" aria-checked="${announcementShown()}"><span class="switch-knob"></span></button></div><button id="signout" class="outline">退出登录</button>`,
     );
     $("#nickname-form").onsubmit = async (e) => {
       e.preventDefault();
@@ -1294,6 +1298,7 @@ async function init() {
           $("#dialog").close();
           $("#dialog-body").innerHTML = "";
           data = { tasks: [], profiles: [], submissions: [], awards: [] };
+          accessLoad = "loading";
           render();
         }
         load();
@@ -1324,6 +1329,7 @@ async function init() {
     addEventListener("focus", () => load());
     addEventListener("online", () => load());
   } catch (e) {
+    accessLoad = "error";
     $("#connection").textContent = "连接失败";
     error(e);
     render();
@@ -1730,7 +1736,7 @@ function newTask(task = null) {
   };
 }
 // 稿件展示：已交稿（待验收）和已完成的作品，加上金山表里登记了终稿的卡。
-// 原稿仅本人和管理员可读；其他成员使用独立水印预览，游客不读取稿件。
+// 原稿仅本人和管理员可读；其他成员使用独立预览，游客不读取稿件。
 let galleryFilter = "all";
 function isRevision(s) {
   return s.submission_kind ? s.submission_kind === "revision" : !String(s.note || "").startsWith("历史稿件补传：");
@@ -1766,9 +1772,9 @@ function workTile({ t, sub, kind }) {
   const artist = (guest ? t.artist_credit : t.assignee ? name(t.assignee) : t.artist_name || t.source_record?.artist) || "";
   const scene = (String(t.brief || "").match(/画面效果：([^\n]+)/) || [])[1] || "";
   const art = preview
-    ? `<img data-preview-path="${esc(preview.preview_path)}" alt="${esc(t.title)} · 水印预览">`
+    ? `<img data-preview-path="${esc(preview.preview_path)}" alt="${esc(t.title)} · 预览">`
     : !canReadOriginal(t)
-    ? '<div class="work-ph"><em>水印预览暂未提供</em></div>'
+    ? '<div class="work-ph"><em>预览暂未提供</em></div>'
     : path?.endsWith(".psd")
     ? `<div class="work-ph"><span class="work-ph-mark">PSD</span><em>源文件 · 点开下载</em></div>`
     : path
@@ -1806,9 +1812,16 @@ function renderGallery() {
   if (!demo && profile?.active && missing.length) {
     const note = document.createElement('p');
     note.className = 'muted gallery-note';
-    note.innerHTML = `<button class="outline" id="generate-previews">补齐水印预览（${missing.length} 份）</button><span id="preview-progress" role="status"></span>`;
+    note.innerHTML = `<button class="outline" id="generate-previews">补齐预览（${missing.length} 份）</button><span id="preview-progress" role="status"></span>`;
     $("#list").append(note);
-    $("#generate-previews").onclick = generateMissingPreviews;
+    $("#generate-previews").onclick = () => generateMissingPreviews();
+  }
+  if (!demo && profile?.active && profile.role === "admin" && previewCandidates(true).length) {
+    const note = document.createElement("p");
+    note.className = "muted gallery-note";
+    note.innerHTML = '<button class="outline" id="rebuild-previews">重新生成已有预览，去掉旧水印</button><span id="preview-progress" role="status"></span>';
+    $("#list").append(note);
+    $("#rebuild-previews").onclick = () => generateMissingPreviews(true);
   }
 }
 // 稿件展示瀑布流：网格按 4px 小行排列，每张卡按自己的实际高度占行数，
@@ -2056,7 +2069,7 @@ function editMember(id) {
   if (!p) return;
   modal(
     "管理画师",
-    `<form id="member-form"><p class="muted">账号尾号 ${esc(p.id.slice(-6))} · 请核对本人</p><label class="field">画师昵称<input name="name" maxlength="40" required value="${esc(p.name)}"></label><label class="field">成员状态<select name="active"><option value="true" ${p.active ? "selected" : ""}>开通成员功能</option><option value="false" ${!p.active ? "selected" : ""}>待开通 / 停用</option></select></label><p class="muted">开通后可认领任务、查看他人的水印预览，并获取自己的原稿。有未完成任务时不能停用。</p><button class="primary">保存</button></form>`,
+    `<form id="member-form"><p class="muted">账号尾号 ${esc(p.id.slice(-6))} · 请核对本人</p><label class="field">画师昵称<input name="name" maxlength="40" required value="${esc(p.name)}"></label><label class="field">成员状态<select name="active"><option value="true" ${p.active ? "selected" : ""}>开通成员功能</option><option value="false" ${!p.active ? "selected" : ""}>待开通 / 停用</option></select></label><p class="muted">开通后可认领任务、查看他人的预览，并获取自己的原稿。有未完成任务时不能停用。</p><button class="primary">保存</button></form>`,
   );
   $("#member-form").onsubmit = async (e) => {
     e.preventDefault();

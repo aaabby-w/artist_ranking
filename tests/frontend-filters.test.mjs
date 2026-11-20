@@ -18,7 +18,7 @@ const ctx = vm.createContext({ renderInbox() {}, document, window: { GUILD_CONFI
   crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000000" }, console, Date, Intl, URL });
 vm.runInContext(source + `
 globalThis.__t = {
-  set(v) { ({ user, profile, view, filter, data } = v); adminFilter = v.adminFilter || "submitted"; },
+  set(v) { ({ user, profile, view, filter, data } = v); accessLoad = v.accessLoad || "ready"; adminFilter = v.adminFilter || "submitted"; },
   submissionFileType, workTile, submissionAccessHint, belongsToMe, render, matchesTaskFilter, taskLabel, syncBadge, sourceState, canDeleteTask, canUnpublish, importDetail, artistBindHTML,
 };`, ctx);
 const T = ctx.__t;
@@ -40,6 +40,19 @@ const base = { profiles: [{ id: "u1", name: "画师丙", role: "artist", active:
 const counts = () => Object.fromEntries([...el(".filters").innerHTML.matchAll(/data-filter="([^"]+)"[^>]*>([^<]*?) (\d+)</g)].map((m) => [m[2], +m[3]]));
 
 const noSheetWord = (html) => assert.doesNotMatch(html, /原表/);
+
+// Missing profile, network failure and a confirmed inactive account are distinct.
+for (const [state, profiles, expected] of [
+  ["loading", [], /正在读取账号状态/],
+  ["error", [], /账号状态读取失败/],
+  ["ready", [], /未找到账号资料/],
+  ["ready", [{id: "u1", name: "画师", role: "artist", active: false}], /尚未开通或已停用/],
+]) {
+  T.set({user: {id: "u1"}, profile: null, view: "board", filter: "all", accessLoad: state, data: {...base, profiles, tasks: []}});
+  T.render();
+  assert.match(el("#list").innerHTML, expected);
+  assert.match(el("#list").innerHTML, /刷新账号状态/);
+}
 
 // Artist (member) view: sheet cards merged into the platform lists
 T.set({ user: { id: "u1" }, profile: null, view: "board", filter: "all", data: { ...base, tasks, sync: { state: { last_success_at: new Date().toISOString() }, run: { status: "success" } } } });
@@ -105,7 +118,7 @@ const wall = el("#list").innerHTML;
 assert.equal(el("#count").textContent, "3 份稿件");
 assert.deepEqual([...wall.matchAll(/class="work (\w+)" data-task="(\d+)"/g)].map((m) => m[1] + ":" + m[2]), ["done:9", "submitted:8", "sheet:3"]);
 assert.match(wall, /data-work-path="00000000-0000-4000-8000-000000000001\/00000000-0000-4000-8000-000000000008\/00000000-0000-4000-8000-000000000009\.png"/);
-assert.match(wall, /待验收<span>2/); assert.match(wall, /金山表登记/); assert.doesNotMatch(wall, /data-gallery-filter="sheet"/); assert.match(wall, /水印预览暂未提供/); assert.match(wall, /✎ 画师丙</); assert.match(wall, /✎ 画师乙</); noSheetWord(wall);
+assert.match(wall, /待验收<span>2/); assert.match(wall, /金山表登记/); assert.doesNotMatch(wall, /data-gallery-filter="sheet"/); assert.match(wall, /预览暂未提供/); assert.match(wall, /✎ 画师丙</); assert.match(wall, /✎ 画师乙</); noSheetWord(wall);
 assert.equal((wall.match(/class="work-credit">✎ /g) || []).length, 3);
 console.log("  ✓ 稿件展示：已完成、待验收、金山表已交终稿各成一组，每张都署名；上传图片走私有签名链接");
 T.set({ user: undefined, profile: null, view: "gallery", filter: "all", data: { ...base, profiles: [], submissions: [], tasks: guestRows } });
@@ -264,4 +277,15 @@ assert.doesNotMatch(privateTile,/data-work-path|guild-submissions|源文件 · �
 assert.equal(vm.runInContext('previewDimensions(4000,2000).width',ctx),640);
 assert.equal(vm.runInContext('previewDimensions(4000,2000).height',ctx),320);
 assert.equal(vm.runInContext('previewDimensions(100,200).height',ctx),200);
+// Preview generation draws the original image without painting watermark text.
+const draws = [];
+ctx.createImageBitmap = async () => ({width: 400, height: 200, close() {}});
+const originalCreateElement = document.createElement;
+document.createElement = (tag) => tag === 'canvas' ? {
+  getContext: () => ({fillRect() {}, drawImage() { draws.push('image'); }, strokeText() { draws.push('text'); }, fillText() { draws.push('text'); }}),
+  toBlob: (callback) => callback({size: 100}),
+} : originalCreateElement(tag);
+await vm.runInContext('makeArtworkPreview({})', ctx);
+assert.deepEqual(draws, ['image']);
+document.createElement = originalCreateElement;
 console.log('PASS: other-member tile contains only preview path; low-res scaling never enlarges originals');
