@@ -847,16 +847,16 @@ async function refreshPreviews() {
   data.previews=result.data || [];
   if(view==='gallery') renderGallery();
 }
-function previewCandidates(includeExisting = false) {
+function previewCandidates() {
   return data.submissions.filter(s=>!s.withdrawn_at && /\.(png|jpg|webp)$/i.test(uploadedImagePath(s.url)||'') &&
-    (includeExisting || !(data.previews||[]).some(p=>p.id===s.id)) && data.tasks.some(t=>t.id===s.task_id && !t.source_removed_at && canReadOriginal(t)));
+    !(data.previews||[]).some(p=>p.id===s.id) && data.tasks.some(t=>t.id===s.task_id && !t.source_removed_at && canReadOriginal(t)));
 }
 let previewsBusy=false;
-async function generateMissingPreviews(includeExisting = false) {
+async function generateMissingPreviews() {
   if(previewsBusy) return;
   previewsBusy=true;
-  const actor=user?.id, candidates=previewCandidates(includeExisting);
-  const button=includeExisting ? $('#rebuild-previews') : $('#generate-previews'),status=button?.nextElementSibling;
+  const actor=user?.id, candidates=previewCandidates();
+  const button=$('#generate-previews'),status=button?.nextElementSibling;
   if(button) button.disabled=true;
   let done=0,failed=0;
   try {
@@ -1815,13 +1815,6 @@ function renderGallery() {
     note.innerHTML = `<button class="outline" id="generate-previews">补齐预览（${missing.length} 份）</button><span id="preview-progress" role="status"></span>`;
     $("#list").append(note);
     $("#generate-previews").onclick = () => generateMissingPreviews();
-  }
-  if (!demo && profile?.active && profile.role === "admin" && previewCandidates(true).length) {
-    const note = document.createElement("p");
-    note.className = "muted gallery-note";
-    note.innerHTML = '<button class="outline" id="rebuild-previews">重新生成已有预览，去掉旧水印</button><span id="preview-progress" role="status"></span>';
-    $("#list").append(note);
-    $("#rebuild-previews").onclick = () => generateMissingPreviews(true);
   }
 }
 // 稿件展示瀑布流：网格按 4px 小行排列，每张卡按自己的实际高度占行数，
